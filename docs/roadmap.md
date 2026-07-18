@@ -19,7 +19,7 @@ Upload → analysis → EDL → ffmpeg rough cut. Versioned EDL as single source
 checkpointed orchestrator, deterministic editorial fallback, beat-snap policy, prompt
 audit log, CLI, seeds, 29 tests.
 
-## Phase M2 — Sound & Words (PR #2)
+## Phase M2 — Sound & Words ✅ (PR #2, merged)
 
 The edit gets its audio identity and captions.
 
@@ -35,7 +35,7 @@ The edit gets its audio identity and captions.
 **Acceptance:** tests for pick determinism, grid math, drop alignment, cue remapping,
 SRT/VTT/ASS goldens, duck-window argv, new graph stages; full suite green.
 
-## Phase M3 — Interactive loop (PR #3)
+## Phase M3 — Interactive loop ✅ (PR #3, merged)
 
 Human-in-the-loop revision with incremental re-render.
 
@@ -50,7 +50,7 @@ Human-in-the-loop revision with incremental re-render.
 **Acceptance:** ops application + fallback parsing tests; "unchanged hash skips render"
 test; API TestClient flows; `tsc` clean.
 
-## Phase M4 — Ship it (PR #4)
+## Phase M4 — Ship it ✅ (PR #4, merged)
 
 | # | Feature | Owner |
 |---|---------|-------|
@@ -59,7 +59,7 @@ test; API TestClient flows; `tsc` clean.
 | 4.3 | Export presets from one EDL: 16:9 / 9:16 (center-crop reframe fallback) / 1:1; ≤90s short trims | manager |
 | 4.4 | YouTube publish adapter behind an explicit-confirmation gate — never auto-publish | manager |
 
-## Phase M5 — Rich content & customization (PR #5)
+## Phase M5 — Rich content & customization ✅ (PR #5, merged)
 
 | # | Feature | Owner |
 |---|---------|-------|
@@ -68,7 +68,7 @@ test; API TestClient flows; `tsc` clean.
 | 5.3 | Graphics rendering: drawtext/ASS title card + lower thirds, style presets | sub-agent |
 | 5.4 | Full customization: per-agent config in the brief (caption preset, transitions, music pin, duck depth, LUFS, toggles) surfaced in CLI + API + UI settings panel | manager |
 
-## Phase M6 — Demo & hardening (PR #6)
+## Phase M6 — Demo & hardening ✅ (PR #6)
 
 | # | Feature | Owner |
 |---|---------|-------|

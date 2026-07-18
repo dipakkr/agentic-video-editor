@@ -1,0 +1,13 @@
+{
+  "track_id": "energetic_128",
+  "title": "Neon Drive",
+  "artist": "AVE Sample Library",
+  "genre": "electronic",
+  "bpm": 128,
+  "duration_s": 120,
+  "energy_curve": [0.3, 0.4, 0.6, 0.8, 0.95, 0.9, 0.7, 0.85, 1.0, 0.6],
+  "downbeat_offset_s": 0.0,
+  "license": "CC0-1.0",
+  "source": "synthesized placeholder (replace with a real royalty-free track)",
+  "file": "energetic_128.wav"
+}

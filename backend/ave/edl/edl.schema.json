@@ -1,0 +1,407 @@
+{
+  "$defs": {
+    "AspectRatio": {
+      "enum": [
+        "16:9",
+        "9:16",
+        "1:1"
+      ],
+      "title": "AspectRatio",
+      "type": "string"
+    },
+    "Brief": {
+      "description": "The user's request. Drives every downstream decision.",
+      "properties": {
+        "platform": {
+          "$ref": "#/$defs/Platform",
+          "default": "youtube"
+        },
+        "target_duration_s": {
+          "exclusiveMinimum": 0,
+          "maximum": 3600,
+          "title": "Target Duration S",
+          "type": "number"
+        },
+        "tone": {
+          "$ref": "#/$defs/Tone",
+          "default": "energetic"
+        },
+        "aspect_ratio": {
+          "$ref": "#/$defs/AspectRatio",
+          "default": "16:9"
+        },
+        "music_track_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Explicit track id, or None for auto-pick / no music.",
+          "title": "Music Track Id"
+        },
+        "auto_pick_music": {
+          "default": true,
+          "title": "Auto Pick Music",
+          "type": "boolean"
+        },
+        "duration_tolerance_pct": {
+          "default": 10.0,
+          "maximum": 50,
+          "minimum": 0,
+          "title": "Duration Tolerance Pct",
+          "type": "number"
+        }
+      },
+      "required": [
+        "target_duration_s"
+      ],
+      "title": "Brief",
+      "type": "object"
+    },
+    "CaptionStyle": {
+      "enum": [
+        "karaoke_bold",
+        "phrase_pop",
+        "clean_subtitle",
+        "none"
+      ],
+      "title": "CaptionStyle",
+      "type": "string"
+    },
+    "Captions": {
+      "properties": {
+        "style": {
+          "$ref": "#/$defs/CaptionStyle",
+          "default": "clean_subtitle"
+        },
+        "language": {
+          "default": "en",
+          "title": "Language",
+          "type": "string"
+        },
+        "font": {
+          "default": "Inter",
+          "title": "Font",
+          "type": "string"
+        },
+        "font_size": {
+          "default": 48,
+          "exclusiveMinimum": 0,
+          "title": "Font Size",
+          "type": "integer"
+        },
+        "primary_color": {
+          "default": "#FFFFFF",
+          "title": "Primary Color",
+          "type": "string"
+        },
+        "stroke_color": {
+          "default": "#000000",
+          "title": "Stroke Color",
+          "type": "string"
+        },
+        "stroke_width": {
+          "default": 3,
+          "minimum": 0,
+          "title": "Stroke Width",
+          "type": "integer"
+        },
+        "position_y": {
+          "default": 0.82,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Position Y",
+          "type": "number"
+        },
+        "emphasize_keywords": {
+          "default": true,
+          "title": "Emphasize Keywords",
+          "type": "boolean"
+        }
+      },
+      "title": "Captions",
+      "type": "object"
+    },
+    "Music": {
+      "properties": {
+        "track_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Track Id"
+        },
+        "offset_s": {
+          "default": 0.0,
+          "description": "Where in the track playback starts.",
+          "minimum": 0,
+          "title": "Offset S",
+          "type": "number"
+        },
+        "ducking": {
+          "default": true,
+          "title": "Ducking",
+          "type": "boolean"
+        },
+        "duck_db": {
+          "default": -14.0,
+          "description": "Music gain under dialogue (dB).",
+          "maximum": 0,
+          "title": "Duck Db",
+          "type": "number"
+        },
+        "fade_in_s": {
+          "default": 0.5,
+          "minimum": 0,
+          "title": "Fade In S",
+          "type": "number"
+        },
+        "fade_out_s": {
+          "default": 1.5,
+          "minimum": 0,
+          "title": "Fade Out S",
+          "type": "number"
+        },
+        "sync_map": {
+          "items": {
+            "$ref": "#/$defs/SyncPoint"
+          },
+          "title": "Sync Map",
+          "type": "array"
+        }
+      },
+      "title": "Music",
+      "type": "object"
+    },
+    "OutputSpec": {
+      "description": "Render target derived from the brief; one EDL can produce several.",
+      "properties": {
+        "aspect_ratio": {
+          "$ref": "#/$defs/AspectRatio",
+          "default": "16:9"
+        },
+        "width": {
+          "default": 1920,
+          "title": "Width",
+          "type": "integer"
+        },
+        "height": {
+          "default": 1080,
+          "title": "Height",
+          "type": "integer"
+        },
+        "fps": {
+          "default": 30.0,
+          "title": "Fps",
+          "type": "number"
+        },
+        "target_lufs": {
+          "default": -14.0,
+          "title": "Target Lufs",
+          "type": "number"
+        },
+        "use_proxy": {
+          "default": true,
+          "title": "Use Proxy",
+          "type": "boolean"
+        }
+      },
+      "title": "OutputSpec",
+      "type": "object"
+    },
+    "Platform": {
+      "enum": [
+        "youtube",
+        "reels",
+        "shorts",
+        "tiktok"
+      ],
+      "title": "Platform",
+      "type": "string"
+    },
+    "Segment": {
+      "description": "One clip on the timeline, referencing a source clip's in/out points.\n\n`reason` is non-negotiable: the Editorial Agent must justify every cut. This\nmakes the edit explainable and makes revision-by-feedback tractable (the LLM\ncan locate the segment a user is describing from its reason).",
+      "properties": {
+        "id": {
+          "pattern": "^seg_[0-9a-zA-Z_]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "source_clip": {
+          "description": "Id of the source clip in the manifest.",
+          "title": "Source Clip",
+          "type": "string"
+        },
+        "in": {
+          "description": "Source in-point (seconds).",
+          "minimum": 0,
+          "title": "In",
+          "type": "number"
+        },
+        "out": {
+          "description": "Source out-point (seconds).",
+          "exclusiveMinimum": 0,
+          "title": "Out",
+          "type": "number"
+        },
+        "speed": {
+          "default": 1.0,
+          "exclusiveMinimum": 0,
+          "maximum": 8.0,
+          "title": "Speed",
+          "type": "number"
+        },
+        "transition_in": {
+          "$ref": "#/$defs/Transition",
+          "default": "hard"
+        },
+        "transition_duration_s": {
+          "default": 0.0,
+          "maximum": 3.0,
+          "minimum": 0,
+          "title": "Transition Duration S",
+          "type": "number"
+        },
+        "cut_snapped_to_beat": {
+          "default": false,
+          "title": "Cut Snapped To Beat",
+          "type": "boolean"
+        },
+        "snapped_beat_s": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Snapped Beat S"
+        },
+        "reason": {
+          "description": "Why the editor chose this segment.",
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "source_clip",
+        "in",
+        "out",
+        "reason"
+      ],
+      "title": "Segment",
+      "type": "object"
+    },
+    "SyncPoint": {
+      "description": "Maps a musical beat to a timeline position (beat-sync alignment).",
+      "properties": {
+        "beat_s": {
+          "minimum": 0,
+          "title": "Beat S",
+          "type": "number"
+        },
+        "timeline_s": {
+          "minimum": 0,
+          "title": "Timeline S",
+          "type": "number"
+        },
+        "is_downbeat": {
+          "default": false,
+          "title": "Is Downbeat",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "beat_s",
+        "timeline_s"
+      ],
+      "title": "SyncPoint",
+      "type": "object"
+    },
+    "Tone": {
+      "enum": [
+        "energetic",
+        "cinematic",
+        "tutorial",
+        "vlog"
+      ],
+      "title": "Tone",
+      "type": "string"
+    },
+    "Transition": {
+      "description": "Cut/transition applied at the *start* of a segment.\n\nHard cut is the default. J-cut / L-cut carry audio across the boundary\n(audio leads / trails the picture respectively).",
+      "enum": [
+        "hard",
+        "crossfade",
+        "whip",
+        "fade_from_black",
+        "j_cut",
+        "l_cut"
+      ],
+      "title": "Transition",
+      "type": "string"
+    }
+  },
+  "description": "The versioned Edit Decision List.",
+  "properties": {
+    "schema_version": {
+      "default": "1.0.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "project_id": {
+      "title": "Project Id",
+      "type": "string"
+    },
+    "version": {
+      "default": 1,
+      "description": "Monotonic revision number.",
+      "minimum": 1,
+      "title": "Version",
+      "type": "integer"
+    },
+    "brief": {
+      "$ref": "#/$defs/Brief"
+    },
+    "timeline": {
+      "items": {
+        "$ref": "#/$defs/Segment"
+      },
+      "title": "Timeline",
+      "type": "array"
+    },
+    "music": {
+      "$ref": "#/$defs/Music"
+    },
+    "captions": {
+      "$ref": "#/$defs/Captions"
+    },
+    "output": {
+      "$ref": "#/$defs/OutputSpec"
+    },
+    "notes": {
+      "default": "",
+      "title": "Notes",
+      "type": "string"
+    }
+  },
+  "required": [
+    "project_id",
+    "brief"
+  ],
+  "title": "EDL",
+  "type": "object"
+}

@@ -144,6 +144,95 @@ def build(edl: EDL, sources: dict[str, str]) -> FFmpegPlan:
     return build_xfade(edl, sources) if has_transition else build_hardcut(edl, sources)
 
 
+def augment_with_overlays_and_graphics(
+    plan: FFmpegPlan,
+    edl: EDL,
+    *,
+    overlay_sources: dict[str, str] | None = None,
+) -> FFmpegPlan:
+    """Layer M5 visuals onto a base plan: full-frame b-roll cutaways + graphics.
+
+    Overlays are true cutaways — the b-roll picture replaces the frame for its window
+    (delayed via setpts, gated with overlay `enable`) while the program audio continues
+    untouched underneath. Graphics render with drawtext: a centered title card and
+    lower-third straps, each time-gated. Applied BEFORE the music/captions augment so
+    burned-in captions stay on top of everything.
+
+    Pure + deterministic, keyed off the base plan's terminal labels like the M2 augment.
+    """
+    overlay_sources = overlay_sources or {}
+    v_label = plan.maps[0].strip("[]")
+    a_label = plan.maps[1]
+    inputs = list(plan.inputs)
+    chains = [plan.filtergraph]
+    w, h, fps = edl.output.width, edl.output.height, edl.output.fps
+
+    current = v_label
+    for i, ovl in enumerate(edl.overlays):
+        src = overlay_sources.get(ovl.id)
+        if src is None:
+            continue  # unresolvable b-roll: skip the cutaway, never fail the render
+        idx = len(inputs)
+        inputs.append(src)
+        start = ovl.timeline_start_s
+        end = round(start + ovl.duration_s, 4)
+        prep, out_label = f"ov{i}", f"vo{i}"
+        chains.append(
+            f"[{idx}:v]trim=start={ovl.in_}:end={ovl.out},setpts=PTS-STARTPTS,"
+            f"scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},"
+            f"setsar=1,fps={fps},setpts=PTS+{start}/TB[{prep}]"
+        )
+        chains.append(
+            f"[{current}][{prep}]overlay=eof_action=pass:"
+            f"enable='between(t,{start},{end})'[{out_label}]"
+        )
+        current = out_label
+
+    for i, item in enumerate(_graphics_items(edl)):
+        out_label = f"vg{i}"
+        chains.append(f"[{current}]{item}[{out_label}]")
+        current = out_label
+
+    if current == v_label:
+        return plan  # nothing to add
+    graph = ";".join(chains)
+    return _finalize(inputs, graph, [f"[{current}]", a_label], edl.output)
+
+
+def _graphics_items(edl: EDL) -> list[str]:
+    """drawtext filter fragments for the EDL's graphics spec (time-gated)."""
+    items: list[str] = []
+    h = edl.output.height
+    card = edl.graphics.title_card
+    if card is not None:
+        end = round(card.start_s + card.duration_s, 4)
+        items.append(
+            f"drawtext=text='{_escape_drawtext(card.text)}':fontsize={h // 10}:"
+            f"fontcolor=white:borderw=3:bordercolor=black:"
+            f"x=(w-text_w)/2:y=(h-text_h)/2:"
+            f"enable='between(t,{card.start_s},{end})'"
+        )
+    for lt in edl.graphics.lower_thirds:
+        end = round(lt.start_s + lt.duration_s, 4)
+        items.append(
+            f"drawtext=text='{_escape_drawtext(lt.text)}':fontsize={h // 22}:"
+            f"fontcolor=white:box=1:boxcolor=black@0.55:boxborderw=12:"
+            f"x=w*0.05:y=h*0.78:"
+            f"enable='between(t,{lt.start_s},{end})'"
+        )
+    return items
+
+
+def _escape_drawtext(text: str) -> str:
+    """Escape text for ffmpeg drawtext (order matters: backslash first)."""
+    return (
+        text.replace("\\", "\\\\")
+        .replace(":", "\\:")
+        .replace("'", "\\\\\\'")
+        .replace("%", "\\%")
+    )
+
+
 def augment_with_music_and_captions(
     plan: FFmpegPlan,
     edl: EDL,

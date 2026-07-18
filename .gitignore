@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node / Next
+node_modules/
+.next/
+out/
+frontend/dist/
+
+# Env & secrets
+.env
+.env.local
+*.local
+
+# Media / working data (never commit heavy binaries)
+data/
+workspace/
+*.mp4
+*.mov
+*.webm
+*.mkv
+*.prores.mov
+*.wav
+*.mp3
+!assets/music/*.json
+
+# OS
+.DS_Store
+Thumbs.db

@@ -52,6 +52,7 @@ class CreateProject(BaseModel):
     target_duration_s: float = 60.0
     tone: Tone = Tone.energetic
     music_track_id: str | None = None
+    agent_config: dict | None = None  # AgentConfig fields (M5 customization)
 
 
 @app.get("/health")
@@ -64,6 +65,12 @@ def create_project(body: CreateProject) -> dict:
     pid = f"proj_{uuid.uuid4().hex[:10]}"
     settings = get_settings()
     storage = get_storage(settings)
+    from ave.edl.schema import AgentConfig
+
+    try:
+        agent_config = AgentConfig.model_validate(body.agent_config or {})
+    except Exception:  # noqa: BLE001 — bad knobs fall back to defaults, never 500
+        agent_config = AgentConfig()
     brief = Brief(
         platform=body.platform,
         target_duration_s=body.target_duration_s,
@@ -71,6 +78,7 @@ def create_project(body: CreateProject) -> dict:
         aspect_ratio=_ASPECT_FOR.get(body.platform, AspectRatio.wide),
         music_track_id=body.music_track_id,
         auto_pick_music=body.music_track_id is None,
+        agent_config=agent_config,
     )
     storage.write_json(pid, "brief.json", brief.model_dump(mode="json"))
     _events[pid] = []
@@ -165,6 +173,32 @@ def latest_render(pid: str):
         if files:
             return FileResponse(str(files[-1]), media_type="video/mp4")
     raise HTTPException(404, "no render yet")
+
+
+class ExportRequest(BaseModel):
+    presets: list[str]
+
+
+@app.post("/projects/{pid}/export")
+async def export_project(pid: str, body: ExportRequest) -> dict:
+    """Render platform export variants from the project's latest EDL."""
+    from ave.edl.schema import EDL
+    from ave.media.exports import EXPORT_PRESETS, export_all
+
+    settings = get_settings()
+    storage = get_storage(settings)
+    bad = [p for p in body.presets if p not in EXPORT_PRESETS]
+    if bad:
+        raise HTTPException(400, f"unknown presets {bad}; available: {sorted(EXPORT_PRESETS)}")
+    try:
+        edl = EDL.model_validate(storage.read_json(pid, "edl/latest.json"))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(404, f"no EDL for {pid}: {exc}")
+    manifests = Orchestrator(storage, settings=settings).load_manifests(pid)
+    results = await asyncio.to_thread(
+        export_all, edl, manifests, pid, storage, body.presets
+    )
+    return {"project_id": pid, "results": results}
 
 
 @app.get("/projects/{pid}/qc")

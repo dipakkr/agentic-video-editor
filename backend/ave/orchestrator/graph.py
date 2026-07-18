@@ -28,6 +28,8 @@ from ave.storage.store import Storage
 class Stage(str, Enum):
     ingest = "ingest"
     editorial = "editorial"
+    broll = "broll"
+    graphics = "graphics"
     music_beat = "music_beat"
     captions = "captions"
     render = "render"
@@ -113,6 +115,10 @@ class Orchestrator:
                 self._run_ingest(state)
             elif state.stage == Stage.editorial:
                 self._run_editorial(state)
+            elif state.stage == Stage.broll:
+                self._run_broll(state)
+            elif state.stage == Stage.graphics:
+                self._run_graphics(state)
             elif state.stage == Stage.music_beat:
                 self._run_music_beat(state)
             elif state.stage == Stage.captions:
@@ -145,11 +151,7 @@ class Orchestrator:
         state.edl = editorial.build_edl(
             state.project_id, state.brief, state.manifests, llm=self.llm, settings=self.settings
         )
-        if state.caption_style:
-            from ave.edl.schema import CaptionStyle
-
-            state.edl = state.edl.model_copy(deep=True)
-            state.edl.captions.style = CaptionStyle(state.caption_style)
+        state.edl = self._apply_agent_config(state)
         self._save_edl(state.edl)
         self._emit(
             Stage.editorial, "done",
@@ -158,6 +160,69 @@ class Orchestrator:
             duration_s=state.edl.total_duration_s,
             within_target=state.edl.within_target(),
         )
+        state.stage = Stage.broll
+
+    def _apply_agent_config(self, state: PipelineState) -> EDL:
+        """Apply the user's per-agent customization knobs (M5) onto a fresh EDL copy."""
+        assert state.edl is not None
+        from ave.edl.schema import CaptionStyle, Transition
+
+        cfg = state.brief.agent_config
+        edl = state.edl.model_copy(deep=True)
+        style = state.caption_style or cfg.caption_style
+        if style:
+            try:
+                edl.captions.style = CaptionStyle(style)
+            except ValueError:
+                pass  # unknown style: keep the editorial default
+        if cfg.transition_style:
+            try:
+                forced = Transition(cfg.transition_style)
+                for seg in edl.timeline[1:]:
+                    seg.transition_in = forced
+                    seg.transition_duration_s = 0.5 if forced != Transition.hard else 0.0
+            except ValueError:
+                pass
+        if cfg.duck_db is not None:
+            edl.music.duck_db = cfg.duck_db
+        if cfg.target_lufs is not None:
+            edl.output.target_lufs = cfg.target_lufs
+        return edl
+
+    def _run_broll(self, state: PipelineState) -> None:
+        """B-roll Agent (M5): cutaways from low-speech clips over long talking segments."""
+        assert state.edl is not None
+        self._emit(Stage.broll, "start", enabled=state.brief.agent_config.enable_broll)
+        try:
+            from ave.agents.broll import plan_overlays  # lazy: module lands in M5
+
+            before = state.edl.version
+            state.edl = plan_overlays(state.edl, state.manifests)
+            if state.edl.version != before:
+                self._save_edl(state.edl)
+            self._emit(Stage.broll, "done", overlays=len(state.edl.overlays))
+        except Exception as exc:  # noqa: BLE001 — optional layer
+            self._emit(Stage.broll, "degraded", error=str(exc))
+        state.stage = Stage.graphics
+
+    def _run_graphics(self, state: PipelineState) -> None:
+        """Graphics Agent (M5): opening title card (drawtext-rendered)."""
+        assert state.edl is not None
+        self._emit(Stage.graphics, "start", enabled=state.brief.agent_config.enable_graphics)
+        try:
+            from ave.agents.graphics import plan_graphics
+
+            before = state.edl.version
+            state.edl = plan_graphics(state.edl, state.manifests)
+            if state.edl.version != before:
+                self._save_edl(state.edl)
+            self._emit(
+                Stage.graphics, "done",
+                title_card=state.edl.graphics.title_card is not None,
+                lower_thirds=len(state.edl.graphics.lower_thirds),
+            )
+        except Exception as exc:  # noqa: BLE001 — optional layer
+            self._emit(Stage.graphics, "degraded", error=str(exc))
         state.stage = Stage.music_beat
 
     def _run_music_beat(self, state: PipelineState) -> None:
@@ -175,10 +240,24 @@ class Orchestrator:
         try:
             from ave.agents.music import apply_music  # lazy: module lands in M2
 
+            # Genre pin (M5): resolve the pin to a concrete track before the pass.
+            pin = state.brief.agent_config.music_genre_pin
+            if pin and not state.edl.brief.music_track_id:
+                from ave.music.library import load_library
+
+                pinned = [t for t in load_library(self.settings.ave_music_dir)
+                          if t.genre == pin]
+                if pinned:
+                    state.edl = state.edl.model_copy(deep=True)
+                    state.edl.brief.music_track_id = pinned[0].track_id
+
             before = state.edl.version
             state.edl = apply_music(
                 state.edl, state.manifests, self.settings.ave_music_dir, self.settings
             )
+            # Re-assert the user's duck depth over the agent's default (M5 knob).
+            if state.brief.agent_config.duck_db is not None:
+                state.edl.music.duck_db = state.brief.agent_config.duck_db
             if state.edl.music.track_id:
                 # apply_music stores track_id; resolve the audio file via the library.
                 from ave.music.library import load_library
@@ -336,6 +415,12 @@ class Orchestrator:
             state.checkpoint(self.storage)
             return state
 
+        # A revised timeline invalidates overlay positions and (possibly) the title
+        # hook, so clear them for a replan; re-entry at broll re-runs everything
+        # downstream while ingest and the original editorial pass never repeat.
+        revised = revised.model_copy(deep=True)
+        revised.overlays = []
+        revised.graphics.title_card = None
         state.edl = revised
         self._save_edl(revised)
         self._emit(
@@ -344,7 +429,7 @@ class Orchestrator:
             duration_s=revised.total_duration_s,
         )
         # Re-run only the downstream stages affected by a timeline change.
-        state.stage = Stage.music_beat
+        state.stage = Stage.broll
         return self.run(state)
 
     def load_manifests(self, project_id: str) -> list[ClipManifest]:

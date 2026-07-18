@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
 
     # Media / analysis tuning
+    ave_music_dir: Path = Path("./assets/music")
     ave_beat_snap_tolerance_ms: int = 180
     ave_proxy_height: int = 720
     ave_target_lufs: float = -14.0

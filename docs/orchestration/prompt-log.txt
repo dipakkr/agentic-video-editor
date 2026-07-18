@@ -3,3 +3,180 @@ ORCHESTRATION PROMPT LOG
 Every prompt the manager agent passes to a sub-agent is appended here verbatim,
 mirroring the runtime LLM prompt log (data/logs/prompts*.txt) for product calls.
 ================================================================================
+
+================================================================================
+[2026-07-18] manager -> sub-agent A (M2: music & beat module)
+--------------------------------------------------------------------------------
+[M2 / sub-agent A — music & beat module]
+
+You are a specialist Python engineer implementing the MUSIC & BEAT feature of an agentic
+video editor. Work ONLY in the repo at /home/user/agentic-video-editor. Do NOT run any
+git commands (the manager commits). Do NOT modify any existing files except adding new
+ones listed below (exception: you may add package __init__.py files you create).
+
+CONTEXT (read these files first):
+- backend/ave/edl/schema.py  — EDL, Brief, Music, SyncPoint, Tone, Segment (in_ aliased to "in")
+- backend/ave/beat/snap.py   — BeatGrid, snap_edl, snap_time, synthetic_grid, grid_from_librosa
+- backend/ave/analysis/manifest.py — ClipManifest, Highlight
+- backend/ave/config.py      — Settings (ave_beat_snap_tolerance_ms)
+- assets/music/*.json        — track metadata files (track_id, title, artist, genre, bpm,
+  duration_s, energy_curve, downbeat_offset_s, license, source, file)
+Conventions: Python 3.11, pydantic v2, line length 100, graceful degradation (librosa is
+OPTIONAL — never crash if missing), module docstrings explaining design, deterministic
+behavior everywhere.
+
+CREATE EXACTLY THESE FILES (this interface is a CONTRACT — do not rename anything):
+
+1. backend/ave/music/__init__.py  — '"""AVE subpackage."""'
+
+2. backend/ave/music/library.py
+   - class TrackMeta(BaseModel): track_id: str, title: str = "", artist: str = "",
+     genre: str = "", bpm: float, duration_s: float, energy_curve: list[float] = [],
+     downbeat_offset_s: float = 0.0, license: str = "", source: str = "", file: str = ""
+   - def load_library(dir: Path) -> list[TrackMeta]
+     Reads all *.json in dir that contain both "track_id" and "bpm" keys (skip others,
+     e.g. README). Sorted by track_id (determinism). Missing dir -> [].
+   - def pick_track(brief: Brief, library: list[TrackMeta]) -> TrackMeta | None
+     If brief.music_track_id set: return that track or None if absent.
+     Else if brief.auto_pick_music: tone->genre preference map
+     (energetic->electronic, cinematic->cinematic, tutorial->ambient, vlog->pop) with
+     fallback ordering: exact genre match first, then closest BPM to a tone-default BPM
+     (energetic 128, cinematic 90, tutorial 100, vlog 110). Deterministic tie-break by
+     track_id. Empty library -> None. Else -> None.
+
+3. backend/ave/music/grid.py
+   - def grid_for_track(meta: TrackMeta, audio_path: str | None = None) -> BeatGrid
+     If audio_path given, try ave.beat.snap.grid_from_librosa(audio_path); on None/exception
+     fall back to synthetic_grid(meta.bpm, meta.duration_s) with beats shifted by
+     meta.downbeat_offset_s (all beats + downbeats shifted, non-negative times only).
+   - def drop_time(meta: TrackMeta) -> float
+     Time of the energy_curve maximum: index_of_max/len(curve) * duration_s. Empty
+     curve -> 0.0. First occurrence wins on ties (determinism).
+
+4. backend/ave/agents/music.py
+   - def apply_music(edl: EDL, manifests: list[ClipManifest], library_dir: Path,
+                     settings: Settings | None = None) -> EDL
+     The Music & Beat Agent pass:
+     a) track = pick_track(edl.brief, load_library(library_dir)); if None, return edl
+        unchanged (no bump) — graceful no-music path.
+     b) grid = grid_for_track(track, audio_path=str(library_dir / track.file) if that
+        file exists else None)
+     c) snapped = snap_edl(edl, grid, tolerance_ms=settings.ave_beat_snap_tolerance_ms)
+        (snap_edl already bumps the version and fills music.sync_map)
+     d) Align the drop: find the manifest Highlight with the highest score whose source
+        window overlaps a timeline segment of that clip; compute its timeline position
+        (edl.timeline_offset_of(segment) + (highlight.start_s - segment.in_)/segment.speed,
+        clamped into the segment); set music.offset_s = max(0.0, drop_time(track) -
+        that_timeline_position). No highlights -> offset_s stays 0.0.
+     e) Set music.track_id, ducking=True, duck_db from existing default, fade_in_s=0.5,
+        fade_out_s=1.5. Return the new EDL.
+     Include a module docstring explaining the pass. Never raise for missing optional
+     pieces; the EDL must always come back valid.
+
+5. backend/tests/test_music.py — thorough pytest coverage, NO external deps beyond the
+   repo (no librosa; grid fallback path only). Cover at least:
+   - load_library skips non-track json / missing dir, sorted determinism
+   - pick_track: explicit pin found/missing, tone->genre match, BPM-closest fallback,
+     deterministic tie-break, empty library
+   - grid_for_track fallback: beat interval = 60/bpm, downbeat offset shift applied
+   - drop_time math incl. empty curve and tie-break
+   - apply_music: no-track passthrough (same object/version), track chosen -> version
+     bumped, sync_map populated, offset alignment math correct on a hand-built EDL +
+     manifest, EDL still schema-valid (model_validate round-trip)
+
+VERIFY before finishing: cd /home/user/agentic-video-editor/backend &&
+. .venv/bin/activate && python -m pytest -q   -> the ENTIRE suite must be green (29
+existing tests + yours). Also: python -c "import ave.agents.music, ave.music.library,
+ave.music.grid" must succeed.
+
+RETURN (as your final message): a short report — files created, test count, any
+deviations from this spec and why. Raw text, no pleasantries.
+
+================================================================================
+[2026-07-18] manager -> sub-agent B (M2: captions module)
+--------------------------------------------------------------------------------
+[M2 / sub-agent B — captions module]
+
+You are a specialist Python engineer implementing the CAPTIONS feature of an agentic
+video editor. Work ONLY in the repo at /home/user/agentic-video-editor. Do NOT run any
+git commands (the manager commits). Do NOT modify any existing files except adding new
+ones listed below (exception: package __init__.py files you create).
+
+CONTEXT (read these files first):
+- backend/ave/edl/schema.py — EDL, Segment (in_ aliased "in", speed, timeline_duration_s),
+  Captions (style/font/font_size/colors/stroke/position_y), CaptionStyle enum
+  (karaoke_bold, phrase_pop, clean_subtitle, none), OutputSpec, AspectRatio
+- backend/ave/analysis/manifest.py — ClipManifest, TranscriptSegment, Word
+- backend/ave/storage/store.py — Storage protocol (path_for gives a writable Path)
+Conventions: Python 3.11, pydantic v2, line length 100, graceful degradation, module
+docstrings, deterministic output.
+
+CREATE EXACTLY THESE FILES (interface is a CONTRACT — do not rename):
+
+1. backend/ave/captions/__init__.py — '"""AVE subpackage."""'
+
+2. backend/ave/captions/cues.py
+   - class CueWord(BaseModel): word: str, start_s: float, end_s: float
+   - class Cue(BaseModel): start_s: float, end_s: float, text: str,
+     words: list[CueWord] = []
+     All times are TIMELINE times (not source-clip times).
+   - def build_cues(edl: EDL, manifests: list[ClipManifest],
+                    mode: str = "sentence") -> list[Cue]
+     For each timeline segment (in order): find its manifest by seg.source_clip; take
+     transcript Words whose source midpoint lies within [seg.in_, seg.out]; remap each
+     word to timeline time: offset = edl.timeline_offset_of(seg.id);
+     t = offset + (word.start_s - seg.in_)/seg.speed (same for end), clamped into
+     [offset, offset + seg.timeline_duration_s]. Skip words flagged is_filler.
+     Grouping: mode "sentence" -> one Cue per source TranscriptSegment slice (text = the
+     words joined); mode "phrase" -> greedy groups of <= 5 words AND <= 2.2s span.
+     Cues sorted by start_s; empty transcript -> [].
+   - def mode_for_style(style: CaptionStyle) -> str
+     karaoke_bold/phrase_pop -> "phrase"; clean_subtitle -> "sentence"; none -> "sentence".
+
+3. backend/ave/captions/writers.py
+   - def to_srt(cues: list[Cue]) -> str   (1-indexed, HH:MM:SS,mmm --> HH:MM:SS,mmm)
+   - def to_vtt(cues: list[Cue]) -> str   ("WEBVTT\n\n" header, HH:MM:SS.mmm)
+   - STYLE_PRESETS: dict[str, dict] keyed by CaptionStyle values, each with keys:
+     fontname, fontsize, primary_colour, outline_colour, outline, bold, alignment
+     (ASS &HAABBGGRR& colour strings; alignment 2 = bottom-center)
+   - def to_ass(cues: list[Cue], captions: Captions, output: OutputSpec) -> str
+     Valid ASS: [Script Info] with PlayResX/PlayResY from output.width/height;
+     [V4+ Styles] one style from STYLE_PRESETS[captions.style.value] but honouring
+     captions.font/font_size overrides; MarginV computed from captions.position_y and a
+     SAFE ZONE: for 9:16 and 1:1 outputs enforce a minimum bottom margin of 12% of
+     height (platform UI overlap), for 16:9 minimum 5%.
+     [Events]: for karaoke_bold, each Dialogue line is one phrase cue whose text uses
+     per-word karaoke tags {\kNN}word (NN = word duration in centiseconds, >=1);
+     for phrase_pop/clean_subtitle, plain text lines. Dialogue times H:MM:SS.cc.
+   - def format_srt_time(t: float) -> str and def format_ass_time(t: float) -> str
+     (exposed for tests)
+
+4. backend/ave/agents/captions.py
+   - def generate_captions(edl: EDL, manifests: list[ClipManifest], project_id: str,
+                           storage) -> dict
+     If edl.captions.style is CaptionStyle.none -> {"cue_count": 0, "srt": None,
+     "vtt": None, "ass": None, "note": "captions disabled"}.
+     Build cues with mode_for_style; if no cues -> same shape with note "no transcript".
+     Else write via storage.path_for(project_id, "captions/subs.srt"|"subs.vtt"|
+     "subs.ass") using Path.write_text, and return {"cue_count": n, "srt": str(path),
+     "vtt": str(path), "ass": str(path), "note": "ok"}. Never raise for missing
+     transcript. Module docstring explaining burned-in vs sidecar roles.
+
+5. backend/tests/test_captions.py — thorough pytest coverage, no external deps. Cover:
+   - remap math: source->timeline with in_ offset, speed != 1.0, clamping at segment
+     bounds, filler words skipped, words outside [in,out] excluded
+   - phrase grouping limits (<=5 words, <=2.2s), sentence grouping per transcript
+     segment, cues sorted
+   - to_srt/to_vtt exact golden strings for 2 hand-built cues (assert full string)
+   - format_srt_time/format_ass_time edge cases (0, 59.999, 3600+)
+   - to_ass: contains PlayResX/Y, style honours font override, karaoke {\k tags with
+     correct centisecond values, 9:16 MarginV >= 12% of height, 16:9 >= 5%
+   - generate_captions: disabled style, empty transcript, happy path writes 3 files
+     (use ave.storage.store.LocalStorage with tmp_path)
+
+VERIFY before finishing: cd /home/user/agentic-video-editor/backend &&
+. .venv/bin/activate && python -m pytest -q  -> ENTIRE suite green. Also
+python -c "import ave.agents.captions, ave.captions.cues, ave.captions.writers".
+
+RETURN (final message): short report — files created, test count, deviations + why.
+Raw text, no pleasantries.

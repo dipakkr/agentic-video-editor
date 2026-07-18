@@ -92,6 +92,72 @@ def run(
 
 
 @app.command()
+def export(
+    project_id: str = typer.Argument(..., help="Project id with a completed pipeline run."),
+    preset: list[str] = typer.Option(
+        None, help="Export presets (repeatable): youtube shorts reels tiktok square. "
+                   "Default: the project's brief platform."
+    ),
+):
+    """Render platform export variants (16:9 / 9:16 / 1:1) from the project's latest EDL."""
+    from ave.media.exports import EXPORT_PRESETS, export_all
+    from ave.orchestrator.graph import Orchestrator
+
+    settings = get_settings()
+    storage = get_storage(settings)
+    try:
+        edl = EDL.model_validate(storage.read_json(project_id, "edl/latest.json"))
+    except Exception as exc:  # noqa: BLE001
+        console.print(f"[red]No EDL for {project_id}:[/red] {exc}")
+        raise typer.Exit(1)
+    bad = [p for p in (preset or []) if p not in EXPORT_PRESETS]
+    if bad:
+        console.print(f"[red]Unknown presets:[/red] {bad} · available: {sorted(EXPORT_PRESETS)}")
+        raise typer.Exit(1)
+    manifests = Orchestrator(storage, settings=settings).load_manifests(project_id)
+    results = export_all(edl, manifests, project_id, storage, presets=preset or None)
+    for name, res in results.items():
+        status = "rendered" if res.get("executed") else "dry plan"
+        console.print(f"  [green]{name:<8}[/green] {status:<9} "
+                      f"{res.get('duration_s')}s  {res.get('output_path') or res.get('plan_path')}")
+
+
+@app.command()
+def publish(
+    project_id: str = typer.Argument(...),
+    video: Path = typer.Option(..., help="Rendered file to upload."),
+    title: str = typer.Option(..., help="Video title."),
+    confirm: bool = typer.Option(
+        False, "--confirm",
+        help="REQUIRED. Publishing never happens without this explicit flag.",
+    ),
+    client_secrets: Path = typer.Option(None, help="OAuth client_secrets.json path."),
+):
+    """Upload to YouTube — always requires --confirm; uploads default to private."""
+    from ave.agents.publish import PublishNotConfigured, PublishNotConfirmed, publish_youtube
+
+    settings = get_settings()
+    storage = get_storage(settings)
+    description = ""
+    try:
+        kit = storage.read_json(project_id, f"release/kit_v"
+                                            f"{EDL.model_validate(storage.read_json(project_id, 'edl/latest.json')).version}.json")
+        description = kit.get("description", "")
+    except Exception:  # noqa: BLE001 — kit is optional for publish
+        pass
+    try:
+        result = publish_youtube(
+            str(video), title=title, description=description,
+            confirm=confirm,
+            client_secrets_path=str(client_secrets) if client_secrets else None,
+        )
+        console.print(f"[green]Uploaded (private):[/green] {result['url']}")
+    except (PublishNotConfirmed, PublishNotConfigured) as exc:
+        console.print(f"[red]Not published:[/red] {exc}")
+        raise typer.Exit(1)
+
+
+@app.command()
 def validate(edl_path: Path):
     """Validate an EDL JSON file against the schema."""
     try:

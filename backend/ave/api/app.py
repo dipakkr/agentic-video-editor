@@ -167,6 +167,36 @@ def latest_render(pid: str):
     raise HTTPException(404, "no render yet")
 
 
+@app.get("/projects/{pid}/qc")
+def get_qc_report(pid: str) -> dict:
+    """Latest QC report (highest EDL version with a persisted report)."""
+    storage = get_storage(get_settings())
+    qc_dir = storage.project_dir(pid) / "qc"
+    if qc_dir.exists():
+        reports = sorted(qc_dir.glob("report_v*.json"),
+                         key=lambda p: int(p.stem.split("v")[-1]))
+        if reports:
+            import json as _json
+
+            return _json.loads(reports[-1].read_text())
+    raise HTTPException(404, f"no QC report for {pid}")
+
+
+@app.get("/projects/{pid}/release")
+def get_release_kit(pid: str) -> dict:
+    """Latest release kit (titles, description with chapters, hashtags, thumbnails)."""
+    storage = get_storage(get_settings())
+    rel_dir = storage.project_dir(pid) / "release"
+    if rel_dir.exists():
+        kits = sorted(rel_dir.glob("kit_v*.json"),
+                      key=lambda p: int(p.stem.split("v")[-1]))
+        if kits:
+            import json as _json
+
+            return _json.loads(kits[-1].read_text())
+    raise HTTPException(404, f"no release kit for {pid}")
+
+
 @app.get("/projects/{pid}/artifacts")
 def list_artifacts(pid: str) -> dict:
     """Everything the pipeline produced, for the UI's artifact browser."""

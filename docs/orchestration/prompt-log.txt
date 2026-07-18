@@ -231,3 +231,36 @@ generate -> progress -> timeline + <video> preview of /renders/latest with 404 f
 
 GATE: npm install (2 tries) then npx tsc --noEmit must pass; if install impossible,
 hand-verify types + report.
+
+================================================================================
+[2026-07-18] manager -> sub-agent E (M4: QC module)
+--------------------------------------------------------------------------------
+Specialist Python engineer. Create ONLY backend/ave/qc/{__init__,checks}.py,
+backend/ave/agents/qc.py, backend/tests/test_qc.py. No git; no edits to existing files.
+checks.py CONTRACT: CheckResult{check,passed,details,responsible_agent in editorial|
+music|captions|render}; QCReport{results,passed,failures_by_agent}. Checks:
+check_duration (within_target), check_segment_bounds (in/out inside source duration;
+unknown clip fails; unmeasured 0-duration skipped), check_duplicate_usage (same-clip
+source-window overlap > 0.5s), check_beat_alignment (snapped segments' timeline offsets
+within tolerance_ms of snapped_beat_s), check_caption_alignment (rebuild cues, even-
+stride sample up to 5, word-set containment vs transcript), check_loudness (loudnorm
+stats dict or None->pass unmeasured; ±1.5 LU). run_all aggregates. agents/qc.py run_qc
+writes qc/report_v{version}.json via storage. ~22+ tests; full suite must stay green.
+
+================================================================================
+[2026-07-18] manager -> sub-agent F (M4: release metadata module)
+--------------------------------------------------------------------------------
+Specialist Python engineer. Create ONLY backend/ave/release/{__init__,metadata}.py,
+backend/ave/agents/release.py, backend/tests/test_release.py. No git; no edits.
+metadata.py deterministic: gen_titles (3 distinct <=90ch from strongest highlight +
+platform patterns; tone fallback), gen_chapters (0.0 first, per-segment offsets,
+6-word labels from transcript slice else reason, dup-merge), gen_description (summary +
+"Chapters:" mm:ss), gen_hashtags (platform/tone base + transcript keyword frequency,
+stopwords removed, len>=4, alpha tie-break, "#" prefixed, dedup, cap 10),
+thumbnail_candidates (top-k in-timeline highlights: clip_id, source midpoint,
+remapped timeline_s, score, reason; segment-midpoint fallback). agents/release.py:
+ReleaseKit{titles,description,hashtags,thumbnails,chapters}; RELEASE_SCHEMA;
+build_release_kit computes deterministic base ALWAYS, optionally replaces titles/
+description/hashtags via LLM (validated: exactly 3 titles else keep base; hashtags
+normalized max 10), any exception -> base; writes release/kit_v{version}.json. Module
+NEVER publishes — publishing is a separate explicitly-confirmed step. ~18+ tests.

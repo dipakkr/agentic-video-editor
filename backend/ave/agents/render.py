@@ -1,0 +1,91 @@
+"""Render Agent — compile the EDL into a video file via ffmpeg.
+
+Backend choice: **ffmpeg filtergraph** over Remotion for M1. Rationale — the render is a
+pure function of the EDL and ffmpeg gives us deterministic, fast, dependency-light
+concat/xfade with frame-accurate trims; captions go in later as burned-in libass/ASS
+(M2), which keeps the render self-contained with no Node/Chromium in the hot path.
+Remotion remains a viable alternate backend for heavily animated caption/graphic styles.
+
+The agent resolves each segment's source to a proxy (preview) or full-res file (final),
+builds the plan, and either executes ffmpeg or — when ffmpeg is unavailable — writes the
+resolved plan to disk (a "dry render") so the pipeline still produces an auditable
+artifact end-to-end.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from ave.analysis.manifest import ClipManifest
+from ave.edl.schema import EDL
+from ave.media import ffmpeg, filtergraph
+from ave.storage.store import Storage
+
+
+def resolve_sources(
+    edl: EDL, manifests: list[ClipManifest], *, use_proxy: bool
+) -> dict[str, str]:
+    """Map each source_clip referenced by the EDL to a concrete file path."""
+    by_id = {m.clip_id: m for m in manifests}
+    sources: dict[str, str] = {}
+    for seg in edl.timeline:
+        m = by_id.get(seg.source_clip)
+        if m is None:
+            raise KeyError(f"segment {seg.id} references unknown clip {seg.source_clip}")
+        path = (m.proxy_path if use_proxy and m.proxy_path else m.source_path)
+        sources[seg.source_clip] = path
+    return sources
+
+
+def render(
+    edl: EDL,
+    manifests: list[ClipManifest],
+    project_id: str,
+    storage: Storage,
+    *,
+    use_proxy: bool | None = None,
+) -> dict:
+    """Render the EDL. Returns {output_path|plan_path, executed, content_hash}."""
+    use_proxy = edl.output.use_proxy if use_proxy is None else use_proxy
+    sources = resolve_sources(edl, manifests, use_proxy=use_proxy)
+    plan = filtergraph.build(edl, sources)
+
+    kind = "preview" if use_proxy else "final"
+    stem = f"renders/{kind}_v{edl.version}_{edl.content_hash()[:12]}"
+
+    # Always persist the resolved plan — it's the deterministic record of this render.
+    plan_path = storage.write_json(
+        project_id,
+        f"{stem}.plan.json",
+        {
+            "content_hash": edl.content_hash(),
+            "version": edl.version,
+            "inputs": plan.inputs,
+            "filtergraph": plan.filtergraph,
+            "maps": plan.maps,
+            "argv": plan.args,
+        },
+    )
+
+    if not ffmpeg.have_ffmpeg():
+        return {
+            "plan_path": plan_path,
+            "output_path": None,
+            "executed": False,
+            "content_hash": edl.content_hash(),
+            "note": "ffmpeg not available — wrote dry render plan only.",
+        }
+
+    out_path = storage.path_for(project_id, f"{stem}.mp4")
+    ffmpeg.run_ffmpeg(plan.args + [str(out_path)])
+    return {
+        "plan_path": plan_path,
+        "output_path": str(out_path),
+        "executed": True,
+        "content_hash": edl.content_hash(),
+    }
+
+
+def load_plan(path: str | Path) -> dict:
+    return json.loads(Path(path).read_text())

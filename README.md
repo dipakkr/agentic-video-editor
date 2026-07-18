@@ -9,10 +9,12 @@ This repo is built in **milestones**, each independently runnable:
 
 | Milestone | Scope | Status |
 |-----------|-------|--------|
-| **M1** | Pipeline core: upload → analysis → EDL → ffmpeg rough cut. CLI-triggerable. | ✅ this PR |
+| **M1** | Pipeline core: upload → analysis → EDL → ffmpeg rough cut. CLI-triggerable. | ✅ |
 | **M2** | Captions + music + beat-sync integrated into the render. | ✅ |
 | **M3** | Web UI: upload, progress streaming, preview, timeline, NL feedback + incremental re-render. | ✅ |
 | **M4** | QC checks + multi-aspect export + metadata/thumbnail + optional YouTube publish. | ✅ |
+| **M5** | B-roll cutaways + graphics (title card) + full per-agent customization. | ✅ |
+| **M6** | 15–20-clip end-to-end demo (`scripts/demo.py`), CI, docs. | ✅ |
 
 > **Development model:** feature-by-feature commits, one milestone per PR. The M3/M4 seams
 > (FastAPI app, arq worker, feedback loop, beat-snap module) are already stubbed so later
@@ -90,7 +92,7 @@ Schema is generated with `ave schema`.
 
 ```jsonc
 {
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "project_id": "proj_ab12cd34ef",
   "version": 4,                       // monotonic; every revision is persisted
   "brief": { "platform": "youtube", "target_duration_s": 480, "tone": "energetic",
@@ -131,6 +133,9 @@ pip install -e ".[dev]"           # core is dependency-light; media/ml/llm are e
 
 # Generate 3 sample clips + 2 tracks and run the pipeline:
 python ../scripts/seed.py --run
+
+# Or run the full 15–20-clip demo (works with or without ffmpeg):
+python ../scripts/demo.py --clips 18
 
 # …or drive it directly:
 ave run clip1.mp4 clip2.mp4 --platform youtube --duration 60 --tone energetic

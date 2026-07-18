@@ -44,10 +44,21 @@ def _seg_chain(seg: Segment, idx: int, out: OutputSpec) -> tuple[str, str, str]:
     setpts = "setpts=PTS-STARTPTS"
     speed_v = f",setpts=PTS/{seg.speed}" if seg.speed != 1.0 else ""
 
+    if out.reframe == "center_crop":
+        # Fill the canvas: scale to cover, then crop the center. This is the 9:16/1:1
+        # auto-reframe fallback; subject-tracked crop anchors arrive with M5.
+        fit = (
+            f"scale={w}:{h}:force_original_aspect_ratio=increase,"
+            f"crop={w}:{h}"
+        )
+    else:
+        fit = (
+            f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
+            f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2"
+        )
     video = (
         f"[{idx}:v]trim=start={seg.in_}:end={seg.out},{setpts}{speed_v},"
-        f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
-        f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={fps}[{v_label}]"
+        f"{fit},setsar=1,fps={fps}[{v_label}]"
     )
     # atempo only accepts 0.5..2.0; chain factors for larger speed changes.
     atempo = _atempo_chain(seg.speed)

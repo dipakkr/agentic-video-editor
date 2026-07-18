@@ -162,8 +162,12 @@ class OutputSpec(BaseModel):
     height: int = 1080
     fps: float = 30.0
     target_lufs: float = -14.0
-    # Preview renders use the low-res proxy; final render uses full-res sources.
+    # Preview renders use the low-res proxy; full-res only on final render.
     use_proxy: bool = True
+    # How sources that don't match the canvas aspect are fitted: letterbox pad (safe
+    # default) or center-crop (fills the frame — used for 9:16/1:1 variants; face/subject
+    # tracking upgrades the crop anchor in M5's reframe work).
+    reframe: Literal["pad", "center_crop"] = "pad"
 
 
 # --------------------------------------------------------------------------- #

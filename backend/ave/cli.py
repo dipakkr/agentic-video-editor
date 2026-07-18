@@ -39,6 +39,10 @@ def run(
     duration: float = typer.Option(60.0, help="Target duration (seconds)."),
     tone: Tone = typer.Option(Tone.energetic, help="Desired tone."),
     music: str = typer.Option(None, help="Music track id (omit for auto-pick)."),
+    no_music: bool = typer.Option(False, "--no-music", help="Skip the music/beat-sync pass."),
+    caption_style: str = typer.Option(
+        None, help="Force a caption style: karaoke_bold | phrase_pop | clean_subtitle | none."
+    ),
     project_id: str = typer.Option(None, help="Reuse an existing project id (resume)."),
 ):
     """Analyze clips, plan an edit, and render a rough cut (M1)."""
@@ -68,7 +72,10 @@ def run(
                       f"{json.dumps({k: v for k, v in data.items() if k != 'features'})}")
 
     orch = Orchestrator(storage, settings=settings, on_progress=progress)
-    state = PipelineState(project_id=pid, brief=brief, clips=clip_map)
+    state = PipelineState(
+        project_id=pid, brief=brief, clips=clip_map,
+        no_music=no_music, caption_style=caption_style,
+    )
     try:
         state = orch.run(state)
     except Exception as exc:  # noqa: BLE001

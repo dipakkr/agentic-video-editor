@@ -45,11 +45,21 @@ def render(
     storage: Storage,
     *,
     use_proxy: bool | None = None,
+    music_path: str | None = None,
+    ass_path: str | None = None,
 ) -> dict:
-    """Render the EDL. Returns {output_path|plan_path, executed, content_hash}."""
+    """Render the EDL. Returns {output_path|plan_path, executed, content_hash}.
+
+    `music_path` / `ass_path` (M2) layer the music bed + ducking + burned-in captions on
+    top of the base cut; when omitted the render is the plain M1 rough cut.
+    """
     use_proxy = edl.output.use_proxy if use_proxy is None else use_proxy
     sources = resolve_sources(edl, manifests, use_proxy=use_proxy)
     plan = filtergraph.build(edl, sources)
+    if music_path is not None or ass_path is not None:
+        plan = filtergraph.augment_with_music_and_captions(
+            plan, edl, music_path=music_path, ass_path=ass_path
+        )
 
     kind = "preview" if use_proxy else "final"
     stem = f"renders/{kind}_v{edl.version}_{edl.content_hash()[:12]}"

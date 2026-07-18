@@ -133,6 +133,79 @@ def build(edl: EDL, sources: dict[str, str]) -> FFmpegPlan:
     return build_xfade(edl, sources) if has_transition else build_hardcut(edl, sources)
 
 
+def augment_with_music_and_captions(
+    plan: FFmpegPlan,
+    edl: EDL,
+    *,
+    music_path: str | None = None,
+    ass_path: str | None = None,
+) -> FFmpegPlan:
+    """Layer the M2 audio identity onto a base plan: music bed + ducking + captions.
+
+    Works generically on the base plan's terminal labels (plan.maps), so it composes with
+    both the hardcut and xfade strategies. Music is trimmed to the timeline window
+    (honouring `music.offset_s`), faded in/out, ducked under dialogue with
+    `sidechaincompress` (sidechain-style ducking), mixed, then mastered with loudnorm to
+    the output's target LUFS. Captions are burned in via the libass `ass` filter when an
+    .ass file is provided; sidecars always ship regardless.
+
+    Pure function: same plan + same EDL + same paths => identical argv (determinism).
+    """
+    v_label = plan.maps[0].strip("[]")
+    a_label = plan.maps[1].strip("[]")
+    inputs = list(plan.inputs)
+    chains = [plan.filtergraph]
+    total = edl.total_duration_s
+    m = edl.music
+
+    final_a = a_label
+    if music_path is not None:
+        music_idx = len(inputs)
+        inputs.append(music_path)
+        fade_out_start = max(0.0, total - m.fade_out_s)
+        music_chain = (
+            f"[{music_idx}:a]atrim=start={m.offset_s}:end={m.offset_s + total},"
+            f"asetpts=PTS-STARTPTS,aresample=48000,"
+            f"afade=t=in:st=0:d={m.fade_in_s},"
+            f"afade=t=out:st={fade_out_start}:d={m.fade_out_s}[music]"
+        )
+        chains.append(music_chain)
+        if m.ducking:
+            # Sidechain ducking: dialogue drives a compressor on the music bed. level_sc
+            # scales sidechain sensitivity; ratio/threshold approximate a -12..-15 dB duck
+            # under speech, with musical attack/release so pumping stays unobtrusive.
+            chains.append(f"[{a_label}]asplit=2[dlg][sc]")
+            chains.append(
+                "[music][sc]sidechaincompress="
+                "threshold=0.02:ratio=12:attack=25:release=350:makeup=1[ducked]"
+            )
+            chains.append("[dlg][ducked]amix=inputs=2:duration=first:normalize=0[mixed]")
+        else:
+            chains.append(f"[{a_label}][music]amix=inputs=2:duration=first:normalize=0[mixed]")
+        final_a = "mixed"
+
+    # Master the program bus to the target loudness regardless of music presence.
+    chains.append(
+        f"[{final_a}]loudnorm=I={edl.output.target_lufs}:TP=-1.5:LRA=11[afinal]"
+    )
+
+    final_v = v_label
+    if ass_path is not None:
+        chains.append(f"[{v_label}]ass=filename='{_escape_filter_path(ass_path)}'[vfinal]")
+        final_v = "vfinal"
+    else:
+        chains.append(f"[{v_label}]null[vfinal]")
+        final_v = "vfinal"
+
+    graph = ";".join(chains)
+    return _finalize(inputs, graph, [f"[{final_v}]", "[afinal]"], edl.output)
+
+
+def _escape_filter_path(path: str) -> str:
+    """Escape a filesystem path for use inside an ffmpeg filter argument."""
+    return path.replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
+
+
 def _finalize(inputs: list[str], graph: str, maps: list[str], out: OutputSpec) -> FFmpegPlan:
     args: list[str] = []
     for path in inputs:

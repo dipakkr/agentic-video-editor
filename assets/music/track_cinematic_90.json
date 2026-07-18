@@ -1,0 +1,13 @@
+{
+  "track_id": "cinematic_90",
+  "title": "Wide Horizon",
+  "artist": "AVE Sample Library",
+  "genre": "cinematic",
+  "bpm": 90,
+  "duration_s": 150,
+  "energy_curve": [0.2, 0.25, 0.35, 0.5, 0.65, 0.8, 0.9, 0.75, 0.6, 0.4],
+  "downbeat_offset_s": 0.0,
+  "license": "CC0-1.0",
+  "source": "synthesized placeholder (replace with a real royalty-free track)",
+  "file": "cinematic_90.wav"
+}

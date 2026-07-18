@@ -1,0 +1,5 @@
+================================================================================
+ORCHESTRATION PROMPT LOG
+Every prompt the manager agent passes to a sub-agent is appended here verbatim,
+mirroring the runtime LLM prompt log (data/logs/prompts*.txt) for product calls.
+================================================================================

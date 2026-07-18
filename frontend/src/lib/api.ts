@@ -36,19 +36,112 @@ export interface EdlCaptions {
   style: string;
 }
 
+/** Per-agent customization knobs (Brief.agent_config, EDL schema v1.1). */
+export interface AgentConfig {
+  transition_style?: string | null;
+  music_genre_pin?: string | null;
+  duck_db?: number | null;
+  caption_style?: string | null;
+  target_lufs?: number | null;
+  enable_broll?: boolean;
+  enable_graphics?: boolean;
+}
+
 export interface EdlBrief {
   platform: string;
   target_duration_s: number;
   tone: string;
+  agent_config?: AgentConfig;
+}
+
+/** B-roll cutaway laid over the primary timeline (EDL v1.1). */
+export interface Overlay {
+  id: string;
+  source_clip: string;
+  in: number;
+  out: number;
+  timeline_start_s: number;
+  mute: boolean;
+  reason: string;
+}
+
+export interface TitleCard {
+  text: string;
+  start_s: number;
+  duration_s: number;
+  style: string;
+}
+
+export interface LowerThird {
+  text: string;
+  start_s: number;
+  duration_s: number;
+  position: string;
+}
+
+export interface GraphicsSpec {
+  title_card?: TitleCard | null;
+  lower_thirds?: LowerThird[];
 }
 
 export interface Edl {
   version: number;
   timeline: Segment[];
+  overlays?: Overlay[];
+  graphics?: GraphicsSpec;
   music: EdlMusic;
   captions: EdlCaptions;
   brief: EdlBrief;
   output?: Record<string, unknown>;
+}
+
+// ---------------------------------------------------------------------------
+// QC / release kit / export types (M5 endpoints — may not exist yet)
+// ---------------------------------------------------------------------------
+
+export interface QcCheckResult {
+  check: string;
+  passed: boolean;
+  details: string;
+  responsible_agent: string;
+}
+
+export interface QcReport {
+  results: QcCheckResult[];
+  passed: boolean;
+  failures_by_agent: Record<string, string[]>;
+}
+
+export interface ReleaseChapter {
+  time_s: number;
+  label: string;
+}
+
+export interface ThumbnailCandidate {
+  clip_id: string;
+  source_time_s: number;
+  timeline_s: number;
+  score: number;
+  reason: string;
+}
+
+export interface ReleaseKit {
+  titles: string[];
+  description: string;
+  hashtags: string[];
+  chapters: ReleaseChapter[];
+  thumbnails: ThumbnailCandidate[];
+}
+
+export interface ExportPresetResult {
+  status?: string;
+  path?: string;
+  error?: string;
+  [key: string]: unknown;
+}
+
+export interface ExportResponse {
+  results: Record<string, ExportPresetResult>;
 }
 
 // ---------------------------------------------------------------------------
@@ -60,6 +153,7 @@ export interface CreateProjectBody {
   target_duration_s: number;
   tone: string;
   music_track_id?: string | null;
+  agent_config?: AgentConfig;
 }
 
 export interface CreateProjectResponse {
@@ -175,6 +269,26 @@ export function sendFeedback(
   note: string
 ): Promise<FeedbackResponse> {
   return postJson<FeedbackResponse>(`/projects/${pid}/feedback`, { note });
+}
+
+/**
+ * QC / release-kit / export endpoints are being added in parallel — callers
+ * must treat failures (404 or network) as "feature unavailable" and hide the
+ * corresponding UI.
+ */
+export function getQcReport(pid: string): Promise<QcReport> {
+  return getJson<QcReport>(`/projects/${pid}/qc`);
+}
+
+export function getReleaseKit(pid: string): Promise<ReleaseKit> {
+  return getJson<ReleaseKit>(`/projects/${pid}/release`);
+}
+
+export function exportProject(
+  pid: string,
+  presets: string[]
+): Promise<ExportResponse> {
+  return postJson<ExportResponse>(`/projects/${pid}/export`, { presets });
 }
 
 export function eventsUrl(pid: string): string {

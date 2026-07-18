@@ -18,7 +18,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
-SCHEMA_VERSION = "1.0.0"
+SCHEMA_VERSION = "1.1.0"
 
 
 # --------------------------------------------------------------------------- #
@@ -69,6 +69,29 @@ class CaptionStyle(str, Enum):
 # --------------------------------------------------------------------------- #
 # Sub-documents                                                                #
 # --------------------------------------------------------------------------- #
+class AgentConfig(BaseModel):
+    """Per-agent customization knobs the user can set on the brief (M5).
+
+    Every field has a safe default, so existing EDLs/briefs remain valid. Each agent
+    reads only its own knobs; toggles feed the orchestrator's stage gating.
+    """
+
+    # Editorial
+    transition_style: Optional[str] = Field(
+        None, description="Force a transition family: hard | crossfade | whip."
+    )
+    # Music & Beat
+    music_genre_pin: Optional[str] = None
+    duck_db: Optional[float] = Field(None, le=0)
+    # Captions
+    caption_style: Optional[str] = None
+    # Render / master
+    target_lufs: Optional[float] = None
+    # Feature toggles (graceful: off = skip the pass entirely)
+    enable_broll: bool = True
+    enable_graphics: bool = True
+
+
 class Brief(BaseModel):
     """The user's request. Drives every downstream decision."""
 
@@ -82,6 +105,8 @@ class Brief(BaseModel):
     auto_pick_music: bool = True
     # ±tolerance the Editorial Agent must respect for total duration.
     duration_tolerance_pct: float = Field(10.0, ge=0, le=50)
+    # Per-agent customization (M5). Defaults keep pre-v1.1 briefs valid.
+    agent_config: AgentConfig = Field(default_factory=AgentConfig)
 
 
 class Segment(BaseModel):
@@ -154,6 +179,57 @@ class Captions(BaseModel):
     emphasize_keywords: bool = True
 
 
+class Overlay(BaseModel):
+    """A b-roll cutaway: picture from another clip laid over the timeline.
+
+    The primary segment's audio (dialogue) continues underneath — b-roll picture is
+    muted by default. `reason` keeps the edit explainable, like every other decision.
+    """
+
+    id: str = Field(..., pattern=r"^ovl_[0-9a-zA-Z_]+$")
+    source_clip: str
+    in_: float = Field(..., ge=0, alias="in")
+    out: float = Field(..., gt=0)
+    timeline_start_s: float = Field(..., ge=0)
+    mute: bool = True
+    reason: str = Field(..., min_length=1)
+
+    model_config = {"populate_by_name": True}
+
+    @model_validator(mode="after")
+    def _check_bounds(self) -> "Overlay":
+        if self.out <= self.in_:
+            raise ValueError(f"overlay {self.id}: out must be > in")
+        return self
+
+    @property
+    def duration_s(self) -> float:
+        return self.out - self.in_
+
+
+class TitleCard(BaseModel):
+    """Opening title graphic (drawtext-rendered)."""
+
+    text: str = Field(..., min_length=1)
+    start_s: float = Field(0.0, ge=0)
+    duration_s: float = Field(2.5, gt=0, le=10)
+    style: str = "bold_center"
+
+
+class LowerThird(BaseModel):
+    """Name/context strap rendered in the lower third of the frame."""
+
+    text: str = Field(..., min_length=1)
+    start_s: float = Field(..., ge=0)
+    duration_s: float = Field(4.0, gt=0, le=15)
+    position: str = "bottom_left"
+
+
+class GraphicsSpec(BaseModel):
+    title_card: Optional[TitleCard] = None
+    lower_thirds: list[LowerThird] = Field(default_factory=list)
+
+
 class OutputSpec(BaseModel):
     """Render target derived from the brief; one EDL can produce several."""
 
@@ -181,6 +257,9 @@ class EDL(BaseModel):
     version: int = Field(1, ge=1, description="Monotonic revision number.")
     brief: Brief
     timeline: list[Segment] = Field(default_factory=list)
+    # M5 (EDL v1.1): b-roll cutaway track + graphics. Defaults keep v1.0 EDLs valid.
+    overlays: list[Overlay] = Field(default_factory=list)
+    graphics: GraphicsSpec = Field(default_factory=GraphicsSpec)
     music: Music = Field(default_factory=Music)
     captions: Captions = Field(default_factory=Captions)
     output: OutputSpec = Field(default_factory=OutputSpec)

@@ -1,5 +1,84 @@
 {
   "$defs": {
+    "AgentConfig": {
+      "description": "Per-agent customization knobs the user can set on the brief (M5).\n\nEvery field has a safe default, so existing EDLs/briefs remain valid. Each agent\nreads only its own knobs; toggles feed the orchestrator's stage gating.",
+      "properties": {
+        "transition_style": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Force a transition family: hard | crossfade | whip.",
+          "title": "Transition Style"
+        },
+        "music_genre_pin": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Music Genre Pin"
+        },
+        "duck_db": {
+          "anyOf": [
+            {
+              "maximum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duck Db"
+        },
+        "caption_style": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Caption Style"
+        },
+        "target_lufs": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Lufs"
+        },
+        "enable_broll": {
+          "default": true,
+          "title": "Enable Broll",
+          "type": "boolean"
+        },
+        "enable_graphics": {
+          "default": true,
+          "title": "Enable Graphics",
+          "type": "boolean"
+        }
+      },
+      "title": "AgentConfig",
+      "type": "object"
+    },
     "AspectRatio": {
       "enum": [
         "16:9",
@@ -54,6 +133,9 @@
           "minimum": 0,
           "title": "Duration Tolerance Pct",
           "type": "number"
+        },
+        "agent_config": {
+          "$ref": "#/$defs/AgentConfig"
         }
       },
       "required": [
@@ -124,6 +206,63 @@
         }
       },
       "title": "Captions",
+      "type": "object"
+    },
+    "GraphicsSpec": {
+      "properties": {
+        "title_card": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TitleCard"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "lower_thirds": {
+          "items": {
+            "$ref": "#/$defs/LowerThird"
+          },
+          "title": "Lower Thirds",
+          "type": "array"
+        }
+      },
+      "title": "GraphicsSpec",
+      "type": "object"
+    },
+    "LowerThird": {
+      "description": "Name/context strap rendered in the lower third of the frame.",
+      "properties": {
+        "text": {
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "start_s": {
+          "minimum": 0,
+          "title": "Start S",
+          "type": "number"
+        },
+        "duration_s": {
+          "default": 4.0,
+          "exclusiveMinimum": 0,
+          "maximum": 15,
+          "title": "Duration S",
+          "type": "number"
+        },
+        "position": {
+          "default": "bottom_left",
+          "title": "Position",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "start_s"
+      ],
+      "title": "LowerThird",
       "type": "object"
     },
     "Music": {
@@ -213,9 +352,67 @@
           "default": true,
           "title": "Use Proxy",
           "type": "boolean"
+        },
+        "reframe": {
+          "default": "pad",
+          "enum": [
+            "pad",
+            "center_crop"
+          ],
+          "title": "Reframe",
+          "type": "string"
         }
       },
       "title": "OutputSpec",
+      "type": "object"
+    },
+    "Overlay": {
+      "description": "A b-roll cutaway: picture from another clip laid over the timeline.\n\nThe primary segment's audio (dialogue) continues underneath \u2014 b-roll picture is\nmuted by default. `reason` keeps the edit explainable, like every other decision.",
+      "properties": {
+        "id": {
+          "pattern": "^ovl_[0-9a-zA-Z_]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "source_clip": {
+          "title": "Source Clip",
+          "type": "string"
+        },
+        "in": {
+          "minimum": 0,
+          "title": "In",
+          "type": "number"
+        },
+        "out": {
+          "exclusiveMinimum": 0,
+          "title": "Out",
+          "type": "number"
+        },
+        "timeline_start_s": {
+          "minimum": 0,
+          "title": "Timeline Start S",
+          "type": "number"
+        },
+        "mute": {
+          "default": true,
+          "title": "Mute",
+          "type": "boolean"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "source_clip",
+        "in",
+        "out",
+        "timeline_start_s",
+        "reason"
+      ],
+      "title": "Overlay",
       "type": "object"
     },
     "Platform": {
@@ -331,6 +528,39 @@
       "title": "SyncPoint",
       "type": "object"
     },
+    "TitleCard": {
+      "description": "Opening title graphic (drawtext-rendered).",
+      "properties": {
+        "text": {
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "start_s": {
+          "default": 0.0,
+          "minimum": 0,
+          "title": "Start S",
+          "type": "number"
+        },
+        "duration_s": {
+          "default": 2.5,
+          "exclusiveMinimum": 0,
+          "maximum": 10,
+          "title": "Duration S",
+          "type": "number"
+        },
+        "style": {
+          "default": "bold_center",
+          "title": "Style",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "TitleCard",
+      "type": "object"
+    },
     "Tone": {
       "enum": [
         "energetic",
@@ -358,7 +588,7 @@
   "description": "The versioned Edit Decision List.",
   "properties": {
     "schema_version": {
-      "default": "1.0.0",
+      "default": "1.1.0",
       "title": "Schema Version",
       "type": "string"
     },
@@ -382,6 +612,16 @@
       },
       "title": "Timeline",
       "type": "array"
+    },
+    "overlays": {
+      "items": {
+        "$ref": "#/$defs/Overlay"
+      },
+      "title": "Overlays",
+      "type": "array"
+    },
+    "graphics": {
+      "$ref": "#/$defs/GraphicsSpec"
     },
     "music": {
       "$ref": "#/$defs/Music"

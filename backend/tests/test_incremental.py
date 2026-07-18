@@ -82,7 +82,7 @@ def test_feedback_noop_short_circuits(tmp_path):
 def test_feedback_change_reenters_at_music_beat_only(tmp_path):
     pytest.importorskip("ave.agents.revise", reason="revise module (M3) not yet delivered")
     events: list = []
-    orch, _ = _orchestrator(tmp_path, events)
+    orch, storage = _orchestrator(tmp_path, events)
     state = orch.run(_fresh_state())
     ingest_before = sum(1 for s, _, _ in events if s == "ingest")
     events.clear()
@@ -94,7 +94,12 @@ def test_feedback_change_reenters_at_music_beat_only(tmp_path):
     assert sum(1 for s, _, _ in events if s == "ingest") == 0
     assert ingest_before == 0  # editorial-start state never ran ingest either
     assert state.stage == Stage.done
-    assert state.edl is not None and "feedback" in state.edl.notes
+    # Provenance lives in the persisted version chain: some revision carries the
+    # feedback note even though later passes (b-roll/graphics/beat) bump further.
+    edl_dir = storage.project_dir("proj_inc") / "edl"
+    notes = [__import__("json").loads(p.read_text()).get("notes", "")
+             for p in edl_dir.glob("v*.json")]
+    assert any("feedback" in n for n in notes)
 
 
 def test_feedback_removes_segment(tmp_path):

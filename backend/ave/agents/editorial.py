@@ -172,11 +172,21 @@ def _build_deterministic(project_id: str, brief: Brief, manifests: list[ClipMani
 def _narrative_order(
     manifests: list[ClipManifest], hook_m: ClipManifest, hook: Shot
 ) -> list[tuple[ClipManifest, Shot]]:
-    """Remaining windows in source order (clip order, then time) — a continuity prior."""
+    """Remaining windows in source order (clip order, then time) — a continuity prior.
+
+    Windows overlapping the hook are *subtracted*, not discarded: a long single-shot
+    talking clip still contributes everything after (and before) its hook, which keeps
+    long talking segments available for b-roll cutaways and wastes no usable material.
+    """
     out: list[tuple[ClipManifest, Shot]] = []
     for m in manifests:
         for win in m.usable_windows():
             if m.clip_id == hook_m.clip_id and _overlaps(win, hook):
+                before = Shot(start_s=win.start_s, end_s=hook.start_s)
+                after = Shot(start_s=hook.end_s, end_s=win.end_s)
+                for part in (before, after):
+                    if part.end_s - part.start_s >= 2.0:
+                        out.append((m, part))
                 continue
             out.append((m, win))
     return out

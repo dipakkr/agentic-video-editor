@@ -11,12 +11,16 @@ import {
   latestRenderUrl,
   runPipeline,
   uploadClip,
+  type AgentConfig,
   type Edl,
 } from "@/lib/api";
 import { Timeline } from "@/components/Timeline";
 import { ProgressStream } from "@/components/ProgressStream";
 import { FeedbackBox } from "@/components/FeedbackBox";
 import { VersionHistory } from "@/components/VersionHistory";
+import { SettingsPanel } from "@/components/SettingsPanel";
+import { QcPanel } from "@/components/QcPanel";
+import { ReleasePanel } from "@/components/ReleasePanel";
 
 const PLATFORMS = ["youtube", "reels", "shorts", "tiktok"] as const;
 // Must match the backend Tone enum (ave/edl/schema.py).
@@ -55,6 +59,7 @@ export default function Home() {
   const [platform, setPlatform] = useState<string>("youtube");
   const [targetDuration, setTargetDuration] = useState<number>(30);
   const [tone, setTone] = useState<string>("energetic");
+  const [agentConfig, setAgentConfig] = useState<AgentConfig | null>(null);
 
   // Uploads
   const [uploads, setUploads] = useState<UploadItem[]>([]);
@@ -102,6 +107,7 @@ export default function Home() {
         platform,
         target_duration_s: targetDuration,
         tone,
+        ...(agentConfig ? { agent_config: agentConfig } : {}),
       });
       setProjectId(project_id);
 
@@ -202,6 +208,11 @@ export default function Home() {
             </select>
           </label>
         </div>
+
+        <SettingsPanel
+          disabled={phase === "running"}
+          onChange={setAgentConfig}
+        />
 
         {/* Clip picker */}
         <div style={{ marginTop: 16 }}>
@@ -368,6 +379,9 @@ export default function Home() {
               />
             )}
           </section>
+
+          <QcPanel pid={projectId} refreshKey={historyKey} />
+          <ReleasePanel pid={projectId} refreshKey={historyKey} />
 
           <FeedbackBox pid={projectId} onRevised={onRevised} />
           <VersionHistory

@@ -264,3 +264,32 @@ build_release_kit computes deterministic base ALWAYS, optionally replaces titles
 description/hashtags via LLM (validated: exactly 3 titles else keep base; hashtags
 normalized max 10), any exception -> base; writes release/kit_v{version}.json. Module
 NEVER publishes — publishing is a separate explicitly-confirmed step. ~18+ tests.
+
+================================================================================
+[2026-07-18] manager -> sub-agent G (M5: b-roll intelligence module)
+--------------------------------------------------------------------------------
+Specialist Python engineer. Create ONLY backend/ave/broll/{__init__,classify}.py,
+backend/ave/agents/broll.py, backend/tests/test_broll.py. No git; no edits to existing.
+classify.py: speech_density (words/s from transcript vs probe duration, 0 fallback),
+classify_clips (>=0.5 wps -> aroll else broll, clip_id order). agents/broll.py:
+plan_overlays(edl, manifests, min_talking_s=6, overlay_len_s=3, gap_s=4): honours
+brief.agent_config.enable_broll (off -> unchanged); cutaways over aroll segments >=
+min_talking_s starting offset+2.0 spaced overlay_len+gap with 1.5s tail clearance;
+b-roll source windows via round-robin clips + successive non-overlapping usable_windows,
+global no-reuse, pool exhaustion stops; ovl_NN ids, mute=True, mandatory reasons; pure
+(deep copy), bump notes "b-roll pass" only when overlays placed. ~18+ tests incl.
+boundary 0.5 wps, purity, determinism, round-trip. Suite must stay green.
+
+================================================================================
+[2026-07-18] manager -> sub-agent H (M5: UI settings/QC/release/overlays)
+--------------------------------------------------------------------------------
+Specialist front-end engineer, owns frontend/src (may modify). No git; no new deps.
+Extend api.ts (AgentConfig/Overlay/GraphicsSpec on Edl; QcReport, ReleaseKit,
+getQcReport, getReleaseKit, exportProject; createProject body gains agent_config).
+SettingsPanel (caption style, transition style, duck dB slider, target LUFS, genre pin,
+enable_broll/enable_graphics) -> AgentConfig to createProject. Timeline gains OVERLAYS
+lane (blocks at timeline_start_s, hatched, reason tooltips; hidden when none) + graphics
+markers. QcPanel (green/red per check + routed-to summary; hidden on fetch failure).
+ReleasePanel (3 selectable titles, hashtag chips, description preview, thumbnails
+table, export preset checkboxes -> POST /export with inline results). page.tsx wires
+panels + refetch after feedback. GATE: npx tsc --noEmit zero errors.

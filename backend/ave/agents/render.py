@@ -50,12 +50,19 @@ def render(
 ) -> dict:
     """Render the EDL. Returns {output_path|plan_path, executed, content_hash}.
 
-    `music_path` / `ass_path` (M2) layer the music bed + ducking + burned-in captions on
-    top of the base cut; when omitted the render is the plain M1 rough cut.
+    `music_path` / `ass_path` (M2) layer the music bed + ducking + burned-in captions;
+    b-roll overlays + graphics (M5) come straight from the EDL. Omit everything and you
+    get the plain M1 rough cut. Layer order: base cut → overlays/graphics → music/
+    captions, so burned-in captions always sit on top.
     """
     use_proxy = edl.output.use_proxy if use_proxy is None else use_proxy
     sources = resolve_sources(edl, manifests, use_proxy=use_proxy)
     plan = filtergraph.build(edl, sources)
+    if edl.overlays or edl.graphics.title_card or edl.graphics.lower_thirds:
+        plan = filtergraph.augment_with_overlays_and_graphics(
+            plan, edl,
+            overlay_sources=resolve_overlay_sources(edl, manifests, use_proxy=use_proxy),
+        )
     if music_path is not None or ass_path is not None:
         plan = filtergraph.augment_with_music_and_captions(
             plan, edl, music_path=music_path, ass_path=ass_path
@@ -109,6 +116,24 @@ def render(
         "executed": True,
         "content_hash": edl.content_hash(),
     }
+
+
+def resolve_overlay_sources(
+    edl: EDL, manifests: list[ClipManifest], *, use_proxy: bool
+) -> dict[str, str]:
+    """Map overlay ids to concrete source files (proxy or full-res).
+
+    Unresolvable clips are simply omitted — the filtergraph skips those cutaways rather
+    than failing the render (graceful degradation).
+    """
+    by_id = {m.clip_id: m for m in manifests}
+    out: dict[str, str] = {}
+    for ovl in edl.overlays:
+        m = by_id.get(ovl.source_clip)
+        if m is None:
+            continue
+        out[ovl.id] = m.proxy_path if use_proxy and m.proxy_path else m.source_path
+    return out
 
 
 def _find_cached(storage: Storage, project_id: str, kind: str, content_key: str) -> str | None:

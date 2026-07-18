@@ -62,7 +62,21 @@ def render(
         )
 
     kind = "preview" if use_proxy else "final"
-    stem = f"renders/{kind}_v{edl.version}_{edl.content_hash()[:12]}"
+    content_key = edl.content_hash()[:12]
+    stem = f"renders/{kind}_v{edl.version}_{content_key}"
+
+    # Incremental re-render: rendering is a pure function of the EDL, so an existing
+    # output for the same content hash IS this render. Version bumps that don't change
+    # content (e.g. a no-op feedback round) hit this cache instead of re-encoding.
+    cached = _find_cached(storage, project_id, kind, content_key)
+    if cached is not None:
+        return {
+            "plan_path": None,
+            "output_path": cached,
+            "executed": True,
+            "cached": True,
+            "content_hash": edl.content_hash(),
+        }
 
     # Always persist the resolved plan — it's the deterministic record of this render.
     plan_path = storage.write_json(
@@ -95,6 +109,15 @@ def render(
         "executed": True,
         "content_hash": edl.content_hash(),
     }
+
+
+def _find_cached(storage: Storage, project_id: str, kind: str, content_key: str) -> str | None:
+    """Locate an existing rendered file for this content hash (any version number)."""
+    renders_dir = storage.project_dir(project_id) / "renders"
+    if not renders_dir.exists():
+        return None
+    matches = sorted(renders_dir.glob(f"{kind}_v*_{content_key}.mp4"))
+    return str(matches[0]) if matches else None
 
 
 def load_plan(path: str | Path) -> dict:

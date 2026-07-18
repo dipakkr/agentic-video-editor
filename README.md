@@ -11,7 +11,7 @@ This repo is built in **milestones**, each independently runnable:
 |-----------|-------|--------|
 | **M1** | Pipeline core: upload → analysis → EDL → ffmpeg rough cut. CLI-triggerable. | ✅ this PR |
 | **M2** | Captions + music + beat-sync integrated into the render. | ✅ |
-| **M3** | Web UI: upload, progress streaming, preview, timeline, NL feedback + incremental re-render. | 🚧 seams in place |
+| **M3** | Web UI: upload, progress streaming, preview, timeline, NL feedback + incremental re-render. | ✅ |
 | **M4** | QC checks + multi-aspect export + metadata/thumbnail + optional YouTube publish. | 🔜 |
 
 > **Development model:** feature-by-feature commits, one milestone per PR. The M3/M4 seams

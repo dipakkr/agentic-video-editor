@@ -180,3 +180,54 @@ python -c "import ave.agents.captions, ave.captions.cues, ave.captions.writers".
 
 RETURN (final message): short report — files created, test count, deviations + why.
 Raw text, no pleasantries.
+
+================================================================================
+[2026-07-18] manager -> sub-agent C (M3: feedback & revise module)
+--------------------------------------------------------------------------------
+Specialist Python engineer task. Create ONLY: backend/ave/feedback/__init__.py,
+backend/ave/feedback/ops.py, backend/ave/agents/revise.py, backend/tests/test_feedback.py.
+No git commands; no edits to existing files.
+
+ops.py CONTRACT: EditOp(BaseModel) with op in {remove_segment, trim, reorder, retime,
+set_transition, change_caption_style, set_target_duration}; fields segment_id,
+trim_start_s, trim_end_s, to_index, speed, transition, transition_duration_s,
+caption_style, target_duration_s, reason. apply_ops(edl, ops, note) -> (new_edl, skipped):
+PURE (deep copy), ops applied in order, invalid ops skipped with human-readable strings
+(unknown segment, trim collapsing below 0.3s source, empty-timeline guard, clamps
+speed 0.25..4.0, reorder index clamped). set_target_duration also trims trailing
+segments over target*(1+tolerance). Bump version with notes "feedback: <note>" only if
+any op applied. Touched segments get " [revised: ...]" appended to reason.
+
+revise.py CONTRACT: OPS_SCHEMA json-schema for {"ops":[...]}; revise_edl(edl, manifests,
+note, llm, settings) -> (EDL, skipped): LLM path via LLMClient.complete_json(agent=
+"revise") with minimal-change editor rules + segment digest; entries failing validation
+ignored; ANY exception falls through to fallback_ops(edl, note) keyword parser:
+remove/cut segment N|seg_NN|first|second|third|last; "make it N seconds"; "shorter"
+(*0.8); "longer" (*1.2); "punchier intro" (first segment tail-trimmed to <=3s);
+"faster"/"slower" (retime 1.25/0.9); "crossfade|smoother transitions"; caption style
+keywords (karaoke/clean/no captions); no match -> [].
+
+Tests ~25+: per-op happy+skip paths, purity, bump semantics, duration-trim math, every
+fallback pattern, revise_edl with unavailable llm and with a fake llm (canned
+complete_json + raising complete_json). Full suite must stay green.
+
+================================================================================
+[2026-07-18] manager -> sub-agent D (M3: web UI)
+--------------------------------------------------------------------------------
+Specialist front-end engineer task. Owns frontend/src/** (may rewrite); nothing outside
+frontend/. No git; NO new npm dependencies.
+
+BUILD: src/lib/api.ts typed client (createProject, uploadClip, runPipeline, getEdl,
+getEdlVersions, sendFeedback, eventsUrl; base NEXT_PUBLIC_API_URL||localhost:8000);
+Timeline.tsx with 4 lanes on one time scale (VIDEO blocks per segment colored by clip
+with reason tooltips + beat-snap glyph; BEAT tick marks from music.sync_map, downbeats
+accented; CAPTIONS bar labelled with style; MUSIC bar "track @ +offset") + prominent
+segment list with reasons (explainability surface); ProgressStream.tsx over EventSource
+(per-stage chips pending/running/done/degraded/skipped, auto-close on done);
+FeedbackBox.tsx (submit -> sendFeedback -> refetch EDL -> onRevised); VersionHistory.tsx
+(defensive fetch, hidden on 404); page.tsx composing brief form + multi-upload +
+generate -> progress -> timeline + <video> preview of /renders/latest with 404 fallback
++ feedback + versions. Dark theme, TS strict.
+
+GATE: npm install (2 tries) then npx tsc --noEmit must pass; if install impossible,
+hand-verify types + report.

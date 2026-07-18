@@ -25,6 +25,16 @@ from ave.storage.store import get_storage
 
 app = FastAPI(title="Agentic Video Editor", version="0.1.0")
 
+# The Next.js dev/preview UI is a separate origin; progress SSE + uploads need CORS.
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 _ASPECT_FOR = {
     Platform.youtube: AspectRatio.wide,
     Platform.reels: AspectRatio.vertical,
@@ -121,14 +131,66 @@ def get_edl(pid: str) -> dict:
         raise HTTPException(404, f"no EDL for {pid}: {exc}")
 
 
+@app.get("/projects/{pid}/edl/versions")
+def list_edl_versions(pid: str) -> dict:
+    """Every EDL revision is persisted; expose the version history for the UI."""
+    storage = get_storage(get_settings())
+    edl_dir = storage.project_dir(pid) / "edl"
+    if not edl_dir.exists():
+        raise HTTPException(404, f"no EDLs for {pid}")
+    versions = sorted(
+        int(p.stem[1:]) for p in edl_dir.glob("v*.json") if p.stem[1:].isdigit()
+    )
+    return {"project_id": pid, "versions": versions}
+
+
+@app.get("/projects/{pid}/edl/versions/{version}")
+def get_edl_version(pid: str, version: int) -> dict:
+    storage = get_storage(get_settings())
+    try:
+        return storage.read_json(pid, f"edl/v{version}.json")
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(404, f"no EDL v{version} for {pid}: {exc}")
+
+
+@app.get("/projects/{pid}/renders/latest")
+def latest_render(pid: str):
+    """Serve the most recent rendered file for the preview player."""
+    from fastapi.responses import FileResponse
+
+    storage = get_storage(get_settings())
+    renders = storage.project_dir(pid) / "renders"
+    if renders.exists():
+        files = sorted(renders.glob("*.mp4"), key=lambda p: p.stat().st_mtime)
+        if files:
+            return FileResponse(str(files[-1]), media_type="video/mp4")
+    raise HTTPException(404, "no render yet")
+
+
+@app.get("/projects/{pid}/artifacts")
+def list_artifacts(pid: str) -> dict:
+    """Everything the pipeline produced, for the UI's artifact browser."""
+    storage = get_storage(get_settings())
+    root = storage.project_dir(pid)
+    if not root.exists():
+        raise HTTPException(404, f"unknown project {pid}")
+    files = [
+        str(p.relative_to(root))
+        for p in sorted(root.rglob("*"))
+        if p.is_file()
+    ]
+    return {"project_id": pid, "files": files}
+
+
 class Feedback(BaseModel):
     note: str
 
 
 @app.post("/projects/{pid}/feedback")
 async def feedback(pid: str, body: Feedback) -> dict:
-    """Natural-language revision → incremental re-render (M3 wires the note into the editor)."""
-    storage = get_storage(get_settings())
+    """Natural-language revision → Revise Agent → incremental downstream re-run."""
+    settings = get_settings()
+    storage = get_storage(settings)
     try:
         edl_json = storage.read_json(pid, "edl/latest.json")
     except Exception as exc:  # noqa: BLE001
@@ -136,11 +198,19 @@ async def feedback(pid: str, body: Feedback) -> dict:
     from ave.edl.schema import EDL
 
     edl = EDL.model_validate(edl_json)
+    _events.setdefault(pid, [])
+    orch = Orchestrator(
+        storage, settings=settings,
+        on_progress=lambda s, st, d: _events[pid].append(
+            {"stage": s, "status": st, "data": d}),
+    )
     state = PipelineState(project_id=pid, brief=edl.brief, clips={}, edl=edl)
-    orch = Orchestrator(storage, on_progress=lambda *a: _events.setdefault(pid, []).append(
-        {"stage": a[0], "status": a[1], "data": a[2]}))
     state = await asyncio.to_thread(orch.apply_feedback, state, body.note)
-    return {"project_id": pid, "edl_version": state.edl.version if state.edl else None}
+    return {
+        "project_id": pid,
+        "edl_version": state.edl.version if state.edl else None,
+        "render": state.render_result,
+    }
 
 
 @app.get("/projects/{pid}/events")

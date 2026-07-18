@@ -209,26 +209,65 @@ class Orchestrator:
         self._emit(Stage.render, "done", **state.render_result)
         state.stage = Stage.done
 
-    # -- feedback loop (M3 seam) ------------------------------------------- #
+    # -- feedback loop (M3) ------------------------------------------------- #
     def apply_feedback(self, state: PipelineState, note: str) -> PipelineState:
-        """Revise the EDL from a natural-language note and re-render incrementally.
+        """Natural-language revision → incremental re-run of only the affected stages.
 
-        Only render re-runs when the EDL content hash changes; identical hashes short-
-        circuit (the determinism guarantee makes this safe).
+        The Revise Agent (LLM ops or deterministic keyword fallback) rewrites the EDL.
+        If the content hash is unchanged the whole pipeline short-circuits (rendering is
+        a pure function of the EDL). Otherwise we re-enter at `music_beat` — cuts moved,
+        so beats re-snap, captions re-map, and render re-runs — while ingest and the
+        original editorial pass are never repeated. Render itself is content-hash cached.
         """
         assert state.edl is not None, "no EDL to revise"
+        if not state.manifests:
+            state.manifests = self.load_manifests(state.project_id)
         before = state.edl.content_hash()
-        # M3 wires the note into the Editorial Agent; for now re-plan with the note as a
-        # provenance annotation so the seam is exercised and versioning advances.
-        revised = state.edl.bump(notes=f"feedback: {note}")
+        self._emit(Stage.editorial, "revising", note=note)
+
+        try:
+            from ave.agents.revise import revise_edl  # lazy: module lands in M3
+
+            revised, skipped = revise_edl(
+                state.edl, state.manifests, note, llm=self.llm, settings=self.settings
+            )
+        except Exception as exc:  # noqa: BLE001 — feedback must never crash a project
+            self._emit(Stage.editorial, "revise_failed", error=str(exc))
+            state.checkpoint(self.storage)
+            return state
+
+        if skipped:
+            self._emit(Stage.editorial, "revise_skipped_ops", skipped=skipped)
+
+        if revised.content_hash() == before:
+            self._emit(Stage.editorial, "revise_noop", note=note)
+            state.stage = Stage.done
+            state.checkpoint(self.storage)
+            return state
+
         state.edl = revised
         self._save_edl(revised)
-        if revised.content_hash() != before:
-            state.stage = Stage.render
-            self._run_render(state)
-        state.stage = Stage.done
-        state.checkpoint(self.storage)
-        return state
+        self._emit(
+            Stage.editorial, "revised",
+            version=revised.version, segments=len(revised.timeline),
+            duration_s=revised.total_duration_s,
+        )
+        # Re-run only the downstream stages affected by a timeline change.
+        state.stage = Stage.music_beat
+        return self.run(state)
+
+    def load_manifests(self, project_id: str) -> list[ClipManifest]:
+        """Rehydrate persisted clip manifests (feedback rounds outlive the run process)."""
+        manifests_dir = self.storage.project_dir(project_id) / "manifests"
+        if not manifests_dir.exists():
+            return []
+        out: list[ClipManifest] = []
+        for path in sorted(manifests_dir.glob("*.json")):
+            try:
+                out.append(ClipManifest.model_validate_json(path.read_text()))
+            except Exception:  # noqa: BLE001 — skip corrupt manifests, keep the rest
+                continue
+        return out
 
     def _save_edl(self, edl: EDL) -> None:
         # Versioned: every revision is persisted (never overwritten).

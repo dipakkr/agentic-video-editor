@@ -31,7 +31,20 @@ class Stage(str, Enum):
     music_beat = "music_beat"
     captions = "captions"
     render = "render"
+    qc = "qc"
+    release = "release"
     done = "done"
+
+
+# QC failure routing: which graph stage re-runs for each responsible agent.
+# Editorial failures are surfaced to the user rather than auto-looped (an automatic
+# re-plan could oscillate; a human note through the feedback loop converges faster).
+_QC_RETRY_STAGE = {
+    "music": Stage.music_beat,
+    "captions": Stage.captions,
+    "render": Stage.render,
+}
+_MAX_QC_RETRIES = 2
 
 
 @dataclass
@@ -49,6 +62,10 @@ class PipelineState:
     # User overrides (CLI/API): disable music, force a caption style.
     no_music: bool = False
     caption_style: str | None = None
+    # M4 artifacts.
+    qc_report: dict | None = None
+    release_kit: dict | None = None
+    qc_retries: int = 0
 
     def checkpoint(self, storage: Storage) -> None:
         storage.write_json(
@@ -102,6 +119,10 @@ class Orchestrator:
                 self._run_captions(state)
             elif state.stage == Stage.render:
                 self._run_render(state)
+            elif state.stage == Stage.qc:
+                self._run_qc(state)
+            elif state.stage == Stage.release:
+                self._run_release(state)
             state.checkpoint(self.storage)
         self._emit(Stage.done, "complete")
         return state
@@ -207,6 +228,76 @@ class Orchestrator:
             music_path=state.music_path, ass_path=ass_path,
         )
         self._emit(Stage.render, "done", **state.render_result)
+        state.stage = Stage.qc
+
+    def _run_qc(self, state: PipelineState) -> None:
+        """QC Agent (M4): gate the draft; route failures back to the responsible agent.
+
+        Failing checks whose responsible agent has a retry stage re-enter the graph
+        there (max _MAX_QC_RETRIES loops); editorial failures — and anything still
+        failing after the retry budget — surface in the report for the user.
+        """
+        assert state.edl is not None
+        self._emit(Stage.qc, "start", attempt=state.qc_retries + 1)
+        try:
+            from ave.agents.qc import run_qc  # lazy: module lands in M4
+
+            report = run_qc(
+                state.edl, state.manifests, state.project_id, self.storage,
+                settings=self.settings,
+            )
+            state.qc_report = report.model_dump(mode="json")
+        except Exception as exc:  # noqa: BLE001 — QC unavailable must not kill the run
+            state.qc_report = None
+            self._emit(Stage.qc, "degraded", error=str(exc))
+            state.stage = Stage.release
+            return
+
+        if report.passed:
+            self._emit(Stage.qc, "done", passed=True)
+            state.stage = Stage.release
+            return
+
+        retryable = [a for a in report.failures_by_agent if a in _QC_RETRY_STAGE]
+        if retryable and state.qc_retries < _MAX_QC_RETRIES:
+            state.qc_retries += 1
+            target = min(
+                (_QC_RETRY_STAGE[a] for a in retryable),
+                key=lambda s: list(Stage).index(s),
+            )
+            self._emit(
+                Stage.qc, "retry",
+                attempt=state.qc_retries, reentry=target.value,
+                failures=report.failures_by_agent,
+            )
+            state.stage = target
+            return
+
+        # Out of retries (or editorial-only failures): surface and continue to release —
+        # the user sees the draft WITH the failure report attached, never a dead end.
+        self._emit(Stage.qc, "done", passed=False, failures=report.failures_by_agent)
+        state.stage = Stage.release
+
+    def _run_release(self, state: PipelineState) -> None:
+        """Release Agent (M4): titles, chaptered description, hashtags, thumbnails."""
+        assert state.edl is not None
+        self._emit(Stage.release, "start")
+        try:
+            from ave.agents.release import build_release_kit  # lazy: module lands in M4
+
+            kit = build_release_kit(
+                state.edl, state.manifests, state.project_id, self.storage,
+                llm=self.llm, settings=self.settings,
+            )
+            state.release_kit = kit.model_dump(mode="json")
+            self._emit(
+                Stage.release, "done",
+                titles=len(kit.titles), hashtags=len(kit.hashtags),
+                thumbnails=len(kit.thumbnails),
+            )
+        except Exception as exc:  # noqa: BLE001 — optional layer, never fail the run
+            state.release_kit = None
+            self._emit(Stage.release, "degraded", error=str(exc))
         state.stage = Stage.done
 
     # -- feedback loop (M3) ------------------------------------------------- #

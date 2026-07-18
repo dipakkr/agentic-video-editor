@@ -75,6 +75,12 @@ export function Timeline({ edl }: { edl: Edl }) {
   const trackId = edl.music?.track_id ?? null;
   const offsetS = edl.music?.offset_s ?? 0;
 
+  const overlays = edl.overlays ?? [];
+  const titleCard = edl.graphics?.title_card ?? null;
+  const lowerThirds = edl.graphics?.lower_thirds ?? [];
+  const hasGraphics = titleCard !== null || lowerThirds.length > 0;
+  const showOverlayLane = overlays.length > 0 || hasGraphics;
+
   return (
     <section style={{ marginTop: 28 }}>
       <h2 style={{ fontSize: 18, marginBottom: 4 }}>
@@ -145,6 +151,93 @@ export function Timeline({ edl }: { edl: Edl }) {
           })}
         </div>
       </div>
+
+      {/* OVERLAYS lane (b-roll cutaways + graphics markers; hidden when empty) */}
+      {showOverlayLane && (
+        <div style={laneRowStyle()}>
+          <div style={laneLabelStyle()}>Overlays</div>
+          <div
+            style={{
+              flex: 1,
+              position: "relative",
+              height: 30,
+              borderRadius: 6,
+              border: "1px solid #1f2937",
+              background: "#101420",
+              overflow: "hidden",
+            }}
+          >
+            {overlays.map((o) => {
+              const duration = Math.max(o.out - o.in, 0);
+              const left = (o.timeline_start_s / total) * 100;
+              const width = (duration / total) * 100;
+              if (left >= 100) return null;
+              return (
+                <div
+                  key={o.id}
+                  title={`${o.id} — ${o.reason}`}
+                  style={{
+                    position: "absolute",
+                    left: `${left}%`,
+                    width: `${Math.min(width, 100 - left)}%`,
+                    top: 3,
+                    bottom: 3,
+                    borderRadius: 4,
+                    border: "1px dashed #8b5cf6",
+                    background:
+                      "repeating-linear-gradient(45deg, rgba(139,92,246,0.28) 0, rgba(139,92,246,0.28) 4px, rgba(139,92,246,0.08) 4px, rgba(139,92,246,0.08) 8px)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 9,
+                    color: "#c4b5fd",
+                    overflow: "hidden",
+                    whiteSpace: "nowrap",
+                    textOverflow: "ellipsis",
+                    cursor: "default",
+                  }}
+                >
+                  {o.source_clip}
+                </div>
+              );
+            })}
+
+            {titleCard && (
+              <span
+                title={`title card "${titleCard.text}" @ ${titleCard.start_s.toFixed(1)}s`}
+                style={{
+                  position: "absolute",
+                  left: `${Math.min((titleCard.start_s / total) * 100, 98)}%`,
+                  top: 0,
+                  fontSize: 11,
+                  lineHeight: "10px",
+                  color: "#f59e0b",
+                  cursor: "default",
+                }}
+              >
+                ▔
+              </span>
+            )}
+            {lowerThirds.map((lt, i) => (
+              <span
+                key={`lt-${i}-${lt.start_s}`}
+                title={`lower third "${lt.text}" @ ${lt.start_s.toFixed(1)}s`}
+                style={{
+                  position: "absolute",
+                  left: `${Math.min((lt.start_s / total) * 100, 98)}%`,
+                  bottom: 0,
+                  fontSize: 11,
+                  lineHeight: "10px",
+                  color: "#14b8a6",
+                  cursor: "default",
+                }}
+              >
+                ▁
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* BEAT lane */}
       <div style={laneRowStyle()}>

@@ -10,6 +10,9 @@ So I built an **agentic video editor**: upload 15–20 clips plus a one-line bri
 
 This post is the full technical breakdown. Six pull requests, 281 tests, and one architectural decision that made everything else possible.
 
+![Walkthrough of the review UI: lane timeline, cut decisions, QC report, release kit](assets/ui-walkthrough.gif)
+*The review surface the agents hand you: a lane timeline (video / b-roll overlays / beats / captions / music), every cut justified, QC findings, and the release kit.*
+
 ---
 
 ## The one decision that mattered: the EDL is the single source of truth
@@ -77,6 +80,9 @@ ingest → editorial → b-roll → graphics → music+beat → captions → ren
 - **QC** runs six checks (duration, segment bounds, duplicate footage, beat alignment, caption/transcript alignment, loudness) and *routes failures back to the responsible agent* — max two retry loops, then the findings surface to the human alongside the draft.
 - **Release** writes three title options, a chaptered description from the transcript, hashtags, and thumbnail candidates. Publishing to YouTube exists — but it is hard-gated behind explicit confirmation and uploads private. The system can never auto-publish.
 
+![Architecture: orchestrator + specialist agents around one EDL](assets/architecture.png)
+*Everything reads and mutates one versioned EDL. Rendering is a pure function of it; feedback and QC loops re-enter the graph at the responsible stage.*
+
 ## Beat-synced cuts: the differentiator
 
 A cut that lands 200 ms off the beat *feels* wrong even to viewers who can't say why. This was the feature I refused to compromise on, so the snapping policy is pure, dependency-free Python with its own test suite:
@@ -95,6 +101,9 @@ The rules that took real iteration:
 2. **Downbeats win for major transitions** — but only within a bias window (90 ms). A downbeat 400 ms away must not beat a regular beat 50 ms away.
 3. **Outside the tolerance window (±180 ms), don't snap at all.** A cut placed for content reasons is better than a cut dragged audibly off its content.
 4. **Align the drop.** The music agent finds the track's energy peak and offsets playback so the drop lands on the strongest visual moment: `offset = max(0, drop_time − hook_timeline_position)`.
+
+![Beat snapping: tolerance window, downbeat preference, content-first refusal](assets/beatsnap.png)
+*The three cases that matter: snap within ±180 ms, prefer the downbeat for major transitions, and refuse to move a cut that's genuinely off-grid.*
 
 When librosa is available, the grid comes from real beat tracking; otherwise a synthetic constant-BPM grid from the track's metadata keeps everything working — which brings me to the pattern that shaped the whole codebase.
 
@@ -151,6 +160,15 @@ The best bug of the build surfaced from a smoke test, not a unit test: the edito
 One command — `python scripts/demo.py --clips 18` — runs the full promise: 18 clips, target 60 seconds, energetic, YouTube.
 
 The result: a **59.75s edit** (within ±10%), opening on the strongest hook with a title card, **6 b-roll cutaways** placed over long talking segments, all **4 cuts snapped to a 128 BPM grid** (2 on downbeats), music ducked −14 dB under dialogue with the drop aligned to the hook, karaoke captions with sidecar files, **six QC checks passed**, three title options, a chaptered description, hashtags, and thumbnail candidates — every single decision carrying a human-readable reason.
+
+![The demo project in the timeline UI](assets/ui-timeline.png)
+*The actual demo project: beat-snap glyphs on every segment, hatched b-roll cutaways in the overlay lane, and the cut-decision list explaining each edit.*
+
+![QC report in the UI](assets/ui-qc.png)
+*The QC agent gates the draft — six checks, each attributable to the agent responsible for fixing it.*
+
+![Release kit in the UI](assets/ui-release.png)
+*The release kit: pick a title, grab the hashtags and chaptered description, choose thumbnails, export per platform.*
 
 ## Lessons
 

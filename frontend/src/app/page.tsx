@@ -3,7 +3,7 @@
 // M3 web UI: brief form → clip uploads → pipeline run with live SSE progress →
 // timeline + preview + natural-language feedback + version history.
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   API_BASE,
   createProject,
@@ -72,6 +72,21 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [historyKey, setHistoryKey] = useState(0);
   const [videoFailed, setVideoFailed] = useState(false);
+
+  // Deep link: /?project=<id> loads an existing project's latest EDL directly
+  // (share a review link, or reopen a pipeline run from the CLI/demo).
+  useEffect(() => {
+    const pid = new URLSearchParams(window.location.search).get("project");
+    if (!pid) return;
+    setProjectId(pid);
+    getEdl(pid)
+      .then((loaded) => {
+        setEdl(loaded);
+        setPhase("ready");
+        setHistoryKey((k) => k + 1);
+      })
+      .catch(() => setError(`could not load project ${pid}`));
+  }, []);
 
   function onFilesPicked(list: FileList | null) {
     if (!list?.length) return;
